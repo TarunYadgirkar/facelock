@@ -5,6 +5,7 @@ One module so the platform surface is easy to see and easy to swap.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import plistlib
 import shlex
@@ -20,9 +21,8 @@ try:  # pyobjc is optional at import time so the tests run anywhere
 except ImportError:  # pragma: no cover
     CGSessionCopyCurrentDictionary = None
 
-CGSESSION = "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession"
+LOGIN_FRAMEWORK = "/System/Library/PrivateFrameworks/login.framework/login"
 LOCK_COMMANDS = {
-    "suspend": [CGSESSION, "-suspend"],
     "sleep": ["pmset", "displaysleepnow"],
 }
 WARN_SOUND = "/System/Library/Sounds/Tink.aiff"
@@ -53,6 +53,13 @@ def screen_locked() -> bool:
 
 
 def lock(method: str = "suspend") -> None:
+    if method == "suspend":
+        # The old CGSession -suspend binary is gone as of macOS 26.
+        try:
+            ctypes.CDLL(LOGIN_FRAMEWORK).SACLockScreenImmediate()
+            return
+        except (OSError, AttributeError):
+            method = "sleep"  # locks too, given require-password-immediately
     command = LOCK_COMMANDS.get(method)
     if command is None:
         raise ValueError(f"unknown lock method {method!r}")
@@ -142,7 +149,14 @@ def install_app(bundle: Path = APP_BUNDLE) -> Path:
     macos_dir.mkdir(parents=True, exist_ok=True)
     (bundle / "Contents" / "Info.plist").write_bytes(plistlib.dumps(APP_PLIST))
     launcher = macos_dir / "FaceLock"
-    launcher.write_text(f'#!/bin/zsh\nexec {shlex.quote(sys.executable)} -m facelock menubar\n')
+    # Trampoline, not exec: a process that IS the LSUIElement bundle gets its
+    # NSStatusItem window parked offscreen at the wrong layer (observed on macOS 26).
+    # Detached, the watcher runs exactly like a terminal launch, which renders fine.
+    launcher.write_text(
+        '#!/bin/zsh\n'
+        f'nohup {shlex.quote(sys.executable)} -m facelock menubar '
+        f'>> {shlex.quote(str(config.LOG_FILE))} 2>&1 &\n'
+    )
     launcher.chmod(0o755)
     return bundle
 

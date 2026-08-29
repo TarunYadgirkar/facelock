@@ -16,12 +16,17 @@ REFRESH_SECONDS = 0.5
 class _Shared:
     """Watcher thread writes, menu bar thread reads. One assignment, no locking needed."""
 
-    def __init__(self) -> None:
+    def __init__(self, cfg: config.Config) -> None:
+        self._cfg = cfg
         self.title = GLYPH[State.PRESENT]
         self.detail = "starting"
 
     def update(self, decision: Decision, reading: Reading) -> None:
         self.title = GLYPH[decision.state]
+        if decision.event is Event.WARN:
+            wait = (self._cfg.stranger_interval if decision.state is State.STRANGER
+                    else self._cfg.recheck_interval)
+            macos.warn(self._cfg, f"locking in ~{wait:.0f}s unless I see you")
         if decision.event is Event.LOCK:
             self.detail = "locked"
         elif decision.state is State.PRESENT:
@@ -44,7 +49,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
     vision.silence_opencv_logs()
     control.setup_logging()
     control.write_pid()
-    shared = _Shared()
+    shared = _Shared(cfg)
     stopping = threading.Event()
 
     class FaceLockApp(rumps.App):

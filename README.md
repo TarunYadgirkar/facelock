@@ -61,7 +61,7 @@ Prefer a terminal? `facelock watch -v` is the same watcher with a live status li
 - **Locked or paused** — the camera stays released and nothing polls. Watching resumes on unlock.
 - **Camera trouble** — an unreadable frame counts as a miss (fail secure), with exponential
   backoff on reopening rather than a lock loop.
-- Locking uses `CGSession -suspend` (the fast-user-switch login window); set
+- Locking calls `SACLockScreenImmediate` (the real lock screen); set
   `lock_method = "sleep"` for `pmset displaysleepnow` instead.
 
 ## Cost

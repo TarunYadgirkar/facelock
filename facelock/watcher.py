@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -127,6 +128,7 @@ def run(
     engine = vision.FaceEngine(cfg)
     camera = vision.Camera(cfg)
     tracker = PresenceTracker(cfg)
+    log = logging.getLogger(config.APP)
     read_failures = 0
 
     try:
@@ -142,15 +144,23 @@ def run(
                 vision.warmup(camera)
 
             reading = look(camera, engine, enrollment, cfg.frames_per_check)
-            if reading is None:  # unreadable camera: back off, then treat it as a miss
+            if reading is None:  # unreadable camera: back off, then count it as a miss
                 read_failures += 1
+                if read_failures in (1, 10) or read_failures % 100 == 0:
+                    log.warning("camera read failed (%d in a row) - no camera permission?",
+                                read_failures)
                 camera.release()
                 _sleep(min(2.0 ** read_failures * 0.1, 5.0), should_stop)
-                continue
+                if read_failures < 3:
+                    continue
+                reading = Reading(NO_MATCH, 0)  # camera gone: fail toward locking, not open
             read_failures = 0
 
             decision = tracker.update(reading)
             observer(decision, reading)
+            if decision.event is not None:
+                log.info("%s (state %s, score %+.2f)",
+                         decision.event.value, decision.state.value, reading.match.score)
 
             if decision.event is Event.LOCK and not dry_run:
                 macos.lock(cfg.lock_method)
