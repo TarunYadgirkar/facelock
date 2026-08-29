@@ -51,12 +51,14 @@ class _Shared:
 
     def update(self, decision: Decision, reading: Reading) -> None:
         self.icon = ICON[decision.state]
+        score = f"match {reading.match.score:.2f}"
         if decision.event is Event.LOCK:
-            self.detail = "locked"
+            self.detail = f"locked ({score})"
         elif decision.state is State.PRESENT:
-            self.detail = "watching"
+            self.detail = f"watching - {score}"
         else:
-            self.detail = f"not seen - {decision.needed - decision.misses} checks from locking"
+            left = decision.needed - decision.misses
+            self.detail = f"not seen - {left} checks from locking ({score})"
 
 
 class _Watcher:
@@ -136,6 +138,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             self.enrollment_item = rumps.MenuItem("counting what it knows")
             self._enrollment_stamp = None
             menu.add(self.enrollment_item)
+            menu.add(rumps.MenuItem(f"counts as you at match {self.cfg.threshold:.2f} or better"))
             menu.add(rumps.separator)
             for label, hint in LESSONS:
                 item = rumps.MenuItem(label, callback=self._lesson_callback(label, hint))
@@ -206,8 +209,12 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             current = identity.stamp()  # cheap stat; the npz is only read when it changes
             if current != self._enrollment_stamp:
                 self._enrollment_stamp = current
-                known = sum(identity.load().profiles.values())
-                self.enrollment_item.title = f"knows {known} views of your face"
+                enrollment = identity.load()
+                known = sum(enrollment.profiles.values())
+                worst, mean = enrollment.separation()
+                self.enrollment_item.title = (
+                    f"knows {known} views - they agree {mean:.2f}, worst pair {worst:.2f}"
+                )
 
         # --- actions -------------------------------------------------------
 
