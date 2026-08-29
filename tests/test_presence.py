@@ -2,9 +2,10 @@ import pytest
 
 from facelock.config import Config
 from facelock.identity import Match
-from facelock.watcher import Decision, Event, PresenceTracker, Reading, State, poll_delay
+from facelock.watcher import Decision, Event, PresenceTracker, Reading, State, look, poll_delay
 
-CFG = Config(threshold=0.4, timeout=3.0, warn_before=1.0, unknown_face_timeout=1.0)
+CFG = Config(threshold=0.4, interval=30.0, recheck_interval=10.0,
+             stranger_interval=2.0, confirm_checks=2)
 
 
 def me(score=0.8):
@@ -20,62 +21,83 @@ def stranger(score=0.1):
 
 
 def test_present_while_i_match():
-    tracker = PresenceTracker(CFG, 0.0)
-    decision = tracker.update(me(), 1.0)
+    tracker = PresenceTracker(CFG)
+    decision = tracker.update(me())
     assert decision.state is State.PRESENT
     assert decision.event is None
 
 
-def test_locks_after_timeout_without_me():
-    tracker = PresenceTracker(CFG, 0.0)
-    assert tracker.update(nobody(), 1.0).event is None
-    assert tracker.update(nobody(), 2.5).event is Event.WARN
-    assert tracker.update(nobody(), 3.5).event is Event.LOCK
+def test_two_missed_checks_lock():
+    tracker = PresenceTracker(CFG)
+    assert tracker.update(nobody()).event is Event.WARN
+    assert tracker.update(nobody()).event is Event.LOCK
 
 
-def test_does_not_lock_one_tick_early():
-    tracker = PresenceTracker(CFG, 0.0)
-    assert tracker.update(nobody(), 2.99).event is not Event.LOCK
+def test_returning_between_checks_resets_the_count():
+    tracker = PresenceTracker(CFG)
+    tracker.update(nobody())
+    assert tracker.update(me()).event is Event.RETURN
+    assert tracker.update(nobody()).event is Event.WARN  # back to check 1 of 2
 
 
-def test_warning_fires_once_per_absence():
-    tracker = PresenceTracker(CFG, 0.0)
-    assert tracker.update(nobody(), 2.1).event is Event.WARN
-    assert tracker.update(nobody(), 2.4).event is None
+def test_count_restarts_after_a_lock():
+    tracker = PresenceTracker(CFG)
+    tracker.update(nobody())
+    assert tracker.update(nobody()).event is Event.LOCK
+    assert tracker.update(nobody()).event is Event.WARN
 
 
-def test_returning_resets_the_clock():
-    tracker = PresenceTracker(CFG, 0.0)
-    tracker.update(nobody(), 2.9)
-    assert tracker.update(me(), 3.0).event is Event.RETURN
-    assert tracker.update(nobody(), 5.0).event is not Event.LOCK
-    assert tracker.update(nobody(), 6.1).event is Event.LOCK
-
-
-def test_stranger_gets_the_shorter_deadline():
-    tracker = PresenceTracker(CFG, 0.0)
-    decision = tracker.update(stranger(), 1.2)
+def test_stranger_state_is_reported():
+    tracker = PresenceTracker(CFG)
+    decision = tracker.update(stranger())
     assert decision.state is State.STRANGER
-    assert decision.event is Event.LOCK
 
 
-def test_clock_restarts_after_a_lock():
-    tracker = PresenceTracker(CFG, 0.0)
-    assert tracker.update(nobody(), 4.0).event is Event.LOCK
-    assert tracker.update(nobody(), 5.0).event is None
-    assert tracker.update(nobody(), 8.1).event is Event.LOCK
+def test_single_check_config_locks_immediately_without_warning():
+    tracker = PresenceTracker(Config(confirm_checks=1))
+    assert tracker.update(nobody()).event is Event.LOCK
 
 
-def test_poll_delay_speeds_up_when_not_present():
-    slow = Decision(State.PRESENT, 0.0, 3.0)
-    fast = Decision(State.AWAY, 1.0, 3.0)
-    assert poll_delay(CFG, slow) == CFG.interval
-    assert poll_delay(CFG, fast) == CFG.alert_interval
+def test_poll_delay_matches_state():
+    assert poll_delay(CFG, Decision(State.PRESENT, 0, 2)) == CFG.interval
+    assert poll_delay(CFG, Decision(State.AWAY, 1, 2)) == CFG.recheck_interval
+    assert poll_delay(CFG, Decision(State.STRANGER, 1, 2)) == CFG.stranger_interval
+
+
+def test_look_takes_the_best_frame_of_the_burst():
+    class FakeCamera:
+        def read(self):
+            return "frame"
+
+    class FakeEngine:
+        def __init__(self):
+            self.scores = iter([0.1, 0.9, 0.2])
+
+        def faces_and_embeddings(self, frame):
+            return 1, next(self.scores)
+
+    class FakeEnrollment:
+        def best(self, score):
+            return Match(score, "me")
+
+    reading = look(FakeCamera(), FakeEngine(), FakeEnrollment(), frames=3)
+    assert reading.match.score == 0.9
+    assert reading.face_count == 1
+
+
+def test_look_reports_camera_failure():
+    class DeadCamera:
+        def read(self):
+            return None
+
+    assert look(DeadCamera(), None, None, frames=2) is None
 
 
 def test_config_rejects_impossible_settings():
     with pytest.raises(ValueError):
-        Config(warn_before=5.0, timeout=3.0).validate()
+        Config(interval=0).validate()
+    with pytest.raises(ValueError):
+        Config(confirm_checks=0).validate()
     with pytest.raises(ValueError):
         Config(threshold=1.5).validate()
     with pytest.raises(ValueError):

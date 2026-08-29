@@ -1,10 +1,10 @@
-"""Optional menu bar front end: same watcher, with a status glyph and a pause menu."""
+"""The menu bar app: the watcher plus a glyph, pause controls and a login toggle."""
 
 from __future__ import annotations
 
 import threading
 
-from . import config, control, identity, vision
+from . import config, control, identity, macos, vision
 from .watcher import Decision, Event, Reading, State, run
 
 GLYPH = {State.PRESENT: "\N{EYE}", State.AWAY: "\N{SLEEPING SYMBOL}", State.STRANGER: "\N{WARNING SIGN}"}
@@ -21,12 +21,15 @@ class _Shared:
 
     def update(self, decision: Decision, reading: Reading) -> None:
         self.title = GLYPH[decision.state]
-        self.detail = (
-            f"score {reading.match.score:+.2f} - away {decision.away:.1f}s "
-            f"of {decision.deadline:.1f}s"
-        )
         if decision.event is Event.LOCK:
             self.detail = "locked"
+        elif decision.state is State.PRESENT:
+            self.detail = f"here (score {reading.match.score:+.2f})"
+        else:
+            self.detail = (
+                f"not seen - check {decision.misses} of {decision.needed} "
+                f"(score {reading.match.score:+.2f})"
+            )
 
 
 def main(cfg: config.Config, dry_run: bool = False) -> int:
@@ -46,13 +49,19 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
         def __init__(self) -> None:
             super().__init__("facelock", title=shared.title, quit_button=None)
             self.status_item = rumps.MenuItem("starting")
+            self.login_item = rumps.MenuItem("Start at Login", callback=self.toggle_login)
+            self.login_item.state = macos.agent_installed()
             self.menu = [
                 self.status_item,
                 None,
+                rumps.MenuItem("Lock Now", callback=self.lock_now),
+                None,
                 rumps.MenuItem("Pause 15 minutes", callback=self.pause_15),
+                rumps.MenuItem("Pause 1 hour", callback=self.pause_hour),
                 rumps.MenuItem("Pause until resumed", callback=self.pause_forever),
                 rumps.MenuItem("Resume", callback=self.resume),
                 None,
+                self.login_item,
                 rumps.MenuItem("Quit", callback=self.quit),
             ]
 
@@ -62,14 +71,27 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             self.title = PAUSED_GLYPH if paused else shared.title
             self.status_item.title = "paused" if paused else shared.detail
 
+        def lock_now(self, _) -> None:
+            macos.lock(cfg.lock_method)
+
         def pause_15(self, _) -> None:
             control.pause(15 * 60)
+
+        def pause_hour(self, _) -> None:
+            control.pause(60 * 60)
 
         def pause_forever(self, _) -> None:
             control.pause(control.FOREVER)
 
         def resume(self, _) -> None:
             control.resume()
+
+        def toggle_login(self, _) -> None:
+            if macos.agent_installed():
+                macos.uninstall_agent()
+            else:
+                macos.install_agent()
+            self.login_item.state = macos.agent_installed()
 
         def quit(self, _) -> None:
             stopping.set()

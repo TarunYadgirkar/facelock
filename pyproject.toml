@@ -1,6 +1,6 @@
 [project]
 name = "facelock"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lock this Mac when my face is not in front of the webcam"
 requires-python = ">=3.11"
 dependencies = [

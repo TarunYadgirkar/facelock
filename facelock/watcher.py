@@ -7,8 +7,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
-from . import config, session, vision
-from .identity import Enrollment, Match
+from . import config, macos, vision
+from .identity import NO_MATCH, Enrollment, Match
+
+# Keeping the camera powered between checks only pays off when the next one is close.
+KEEP_CAMERA_OPEN_UNDER = 5.0
+LOCK_SETTLE = 1.5
 
 
 class State(str, Enum):
@@ -25,6 +29,8 @@ class Event(str, Enum):
 
 @dataclass(frozen=True)
 class Reading:
+    """What one check saw: the best match of the frame burst, and how many faces at most."""
+
     match: Match
     face_count: int
 
@@ -32,8 +38,8 @@ class Reading:
 @dataclass(frozen=True)
 class Decision:
     state: State
-    away: float
-    deadline: float
+    misses: int  # consecutive checks without me, this one included
+    needed: int  # misses required before locking
     event: Event | None = None
 
     @property
@@ -42,45 +48,71 @@ class Decision:
 
 
 class PresenceTracker:
-    """Pure decision logic - no camera, no clock of its own. Deliberately easy to test."""
+    """Pure decision logic - counts checks, owns no camera and no clock. Easy to test."""
 
-    def __init__(self, cfg: config.Config, now: float):
+    def __init__(self, cfg: config.Config):
         self._cfg = cfg
-        self._last_seen = now
-        self._warned = False
+        self._misses = 0
         self._was_present = True
 
-    def update(self, reading: Reading, now: float) -> Decision:
-        cfg = self._cfg
-        if reading.match.accepted(cfg.threshold):
+    def reset(self) -> None:
+        self._misses = 0
+        self._was_present = True
+
+    def update(self, reading: Reading) -> Decision:
+        needed = self._cfg.confirm_checks
+        if reading.match.accepted(self._cfg.threshold):
             returning = not self._was_present
-            self._last_seen = now
-            self._warned = False
-            self._was_present = True
-            return Decision(State.PRESENT, 0.0, cfg.timeout, Event.RETURN if returning else None)
+            self.reset()
+            return Decision(State.PRESENT, 0, needed, Event.RETURN if returning else None)
 
-        away = now - self._last_seen
-        stranger = reading.face_count > 0
-        state = State.STRANGER if stranger else State.AWAY
-        deadline = cfg.unknown_face_timeout if stranger else cfg.timeout
+        self._misses += 1
         self._was_present = False
+        state = State.STRANGER if reading.face_count > 0 else State.AWAY
 
-        if away >= deadline:
-            self._last_seen = now  # the caller locks; restart the clock either way
-            self._warned = False
-            return Decision(state, away, deadline, Event.LOCK)
-        if not self._warned and away >= max(0.0, deadline - cfg.warn_before):
-            self._warned = True
-            return Decision(state, away, deadline, Event.WARN)
-        return Decision(state, away, deadline)
+        if self._misses >= needed:
+            self._misses = 0  # the caller locks; start the next absence from scratch
+            return Decision(state, needed, needed, Event.LOCK)
+        if self._misses == needed - 1:
+            return Decision(state, self._misses, needed, Event.WARN)
+        return Decision(state, self._misses, needed)
 
 
 def poll_delay(cfg: config.Config, decision: Decision) -> float:
-    """Poll faster once someone is on the clock, slower while I am plainly here."""
-    return cfg.alert_interval if decision.urgent else cfg.interval
+    """Slow cadence while I am plainly here, faster once something is on the clock."""
+    if decision.state is State.PRESENT:
+        return cfg.interval
+    return cfg.stranger_interval if decision.state is State.STRANGER else cfg.recheck_interval
+
+
+def look(camera: vision.Camera, engine: vision.FaceEngine, enrollment: Enrollment,
+         frames: int) -> Reading | None:
+    """One check: a short burst of frames, scored as its best match. None if the camera failed."""
+    best = NO_MATCH
+    faces = 0
+    for _ in range(frames):
+        frame = camera.read()
+        if frame is None:
+            return None
+        count, embeddings = engine.faces_and_embeddings(frame)
+        match = enrollment.best(embeddings)
+        faces = max(faces, count)
+        if match.score > best.score:
+            best = match
+    return Reading(best, faces)
 
 
 Observer = Callable[[Decision, Reading], None]
+
+
+def _sleep(seconds: float, should_stop: Callable[[], bool]) -> None:
+    """Sleep in short ticks so stop and pause are honoured within half a second."""
+    deadline = time.monotonic() + seconds
+    while not should_stop():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.5, remaining))
 
 
 def run(
@@ -89,47 +121,46 @@ def run(
     observer: Observer,
     dry_run: bool = False,
     paused: Callable[[], bool] = lambda: False,
-    clock: Callable[[], float] = time.monotonic,
     should_stop: Callable[[], bool] = lambda: False,
 ) -> None:
-    """Watch until interrupted. Releases the camera whenever it is not needed."""
+    """Watch until stopped. Holds the camera only for as long as a check needs it."""
     engine = vision.FaceEngine(cfg)
     camera = vision.Camera(cfg)
-    tracker = PresenceTracker(cfg, clock())
+    tracker = PresenceTracker(cfg)
     read_failures = 0
 
     try:
         while not should_stop():
-            if session.screen_locked() or paused():
+            if macos.screen_locked() or paused():
                 camera.release()
-                tracker = PresenceTracker(cfg, clock())
-                time.sleep(1.0)
+                tracker.reset()
+                _sleep(1.0, should_stop)
                 continue
 
             if not camera.is_open:
                 camera.open()
                 vision.warmup(camera)
-                tracker = PresenceTracker(cfg, clock())
 
-            frame = camera.read()
-            if frame is None:
+            reading = look(camera, engine, enrollment, cfg.frames_per_check)
+            if reading is None:  # unreadable camera: back off, then treat it as a miss
                 read_failures += 1
                 camera.release()
-                time.sleep(min(2.0 ** read_failures * 0.1, 5.0))
+                _sleep(min(2.0 ** read_failures * 0.1, 5.0), should_stop)
                 continue
             read_failures = 0
 
-            count, embeddings = engine.faces_and_embeddings(frame)
-            reading = Reading(enrollment.best(embeddings), count)
-            decision = tracker.update(reading, clock())
+            decision = tracker.update(reading)
             observer(decision, reading)
 
             if decision.event is Event.LOCK and not dry_run:
-                session.lock(cfg.lock_method)
-                time.sleep(1.5)
+                macos.lock(cfg.lock_method)
                 camera.release()
+                time.sleep(LOCK_SETTLE)
                 continue
 
-            time.sleep(poll_delay(cfg, decision))
+            delay = poll_delay(cfg, decision)
+            if delay >= KEEP_CAMERA_OPEN_UNDER:
+                camera.release()  # green light off, sensor unpowered, between checks
+            _sleep(delay, should_stop)
     finally:
         camera.release()

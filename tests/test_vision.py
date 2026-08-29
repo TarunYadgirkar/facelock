@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from facelock import config, vision
 
@@ -44,3 +45,30 @@ def test_embeddings_are_unit_length():
                     + [0.99], dtype=np.float32)
     embeddings = engine.embed(frame, np.array([face]))
     assert np.allclose(np.linalg.norm(embeddings, axis=1), 1.0, atol=1e-5)
+
+
+def test_models_download_only_when_missing(tmp_path, monkeypatch):
+    """First run fetches; later runs must not touch the network."""
+    source = tmp_path / "zoo" / "folder"
+    source.mkdir(parents=True)
+    (source / "model.onnx").write_bytes(b"weights")
+    monkeypatch.setattr(config, "MODELS_DIR", tmp_path / "models")
+    monkeypatch.setattr(config, "MODELS", {"model.onnx": "folder"})
+    monkeypatch.setattr(config, "MODEL_SOURCE", (tmp_path / "zoo").as_uri())
+
+    fetched = []
+    vision.ensure_models(fetched.append)
+    assert (tmp_path / "models" / "model.onnx").read_bytes() == b"weights"
+    assert len(fetched) == 1
+
+    vision.ensure_models(fetched.append)
+    assert len(fetched) == 1  # already there, nothing downloaded
+
+
+def test_a_failed_download_leaves_nothing_behind(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "MODELS_DIR", tmp_path / "models")
+    monkeypatch.setattr(config, "MODELS", {"model.onnx": "folder"})
+    monkeypatch.setattr(config, "MODEL_SOURCE", (tmp_path / "empty").as_uri())
+    with pytest.raises(SystemExit):
+        vision.ensure_models(lambda _: None)
+    assert list((tmp_path / "models").iterdir()) == []

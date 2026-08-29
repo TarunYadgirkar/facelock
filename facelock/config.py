@@ -25,6 +25,12 @@ PAUSE_FILE = STATE_DIR / "pause"
 PID_FILE = STATE_DIR / "watcher.pid"
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+MODEL_SOURCE = "https://github.com/opencv/opencv_zoo/raw/main/models"
+# filename -> directory in the opencv_zoo repo
+MODELS = {
+    "face_detection_yunet_2023mar.onnx": "face_detection_yunet",
+    "face_recognition_sface_2021dec.onnx": "face_recognition_sface",
+}
 DETECTOR_MODEL = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
 RECOGNIZER_MODEL = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
 
@@ -38,11 +44,13 @@ class Config:
     detect_score: float = 0.85
 
     threshold: float = 0.363  # SFace reference operating point
-    timeout: float = 3.0
-    unknown_face_timeout: float = 1.0  # someone else's face and not mine: lock sooner
-    warn_before: float = 1.0
-    interval: float = 0.25
-    alert_interval: float = 0.12  # faster polling once the deadline is near
+
+    # Timing. A "check" is one look at the camera; the loop is a cadence, not a stopwatch.
+    interval: float = 30.0  # seconds between checks while I am here
+    recheck_interval: float = 10.0  # seconds until the next check once I am missing
+    stranger_interval: float = 2.0  # ... but only this long when someone else is in frame
+    confirm_checks: int = 2  # consecutive checks without me before the screen locks
+    frames_per_check: int = 3  # frames per check; the best match of the burst wins
 
     lock_method: str = "suspend"  # suspend | sleep
     sound: bool = True
@@ -51,10 +59,13 @@ class Config:
     def validate(self) -> Config:
         if not 0.0 < self.threshold < 1.0:
             raise ValueError("threshold must be between 0 and 1")
-        if self.timeout <= 0 or self.interval <= 0:
-            raise ValueError("timeout and interval must be positive")
-        if self.warn_before < 0 or self.warn_before >= self.timeout:
-            raise ValueError("warn_before must be >= 0 and less than timeout")
+        for name in ("interval", "recheck_interval", "stranger_interval"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.confirm_checks < 1:
+            raise ValueError("confirm_checks must be at least 1")
+        if self.frames_per_check < 1:
+            raise ValueError("frames_per_check must be at least 1")
         if self.lock_method not in ("suspend", "sleep"):
             raise ValueError("lock_method must be 'suspend' or 'sleep'")
         return self
@@ -68,7 +79,10 @@ def load(path: Path = CONFIG_FILE) -> Config:
     known = {f.name for f in fields(Config)}
     unknown = set(raw) - known
     if unknown:
-        raise ValueError(f"unknown keys in {path}: {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"unknown keys in {path}: {', '.join(sorted(unknown))}\n"
+            "  the timing settings were renamed - `facelock config --write` regenerates the file"
+        )
     return Config(**raw).validate()
 
 

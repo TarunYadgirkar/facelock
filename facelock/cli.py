@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from . import agent, config, control, enroll, identity, notify, session, vision
+from . import config, control, enroll, identity, macos, vision
 from .watcher import Decision, Event, Reading, State, run
 
 STATE_GLYPH = {State.PRESENT: "+", State.AWAY: "-", State.STRANGER: "!"}
@@ -21,8 +21,8 @@ def _resolved_config(args: argparse.Namespace) -> config.Config:
         base,
         camera=getattr(args, "camera", None),
         threshold=getattr(args, "threshold", None),
-        timeout=getattr(args, "timeout", None),
         interval=getattr(args, "interval", None),
+        recheck_interval=getattr(args, "recheck", None),
     )
 
 
@@ -80,7 +80,7 @@ def cmd_test(args: argparse.Namespace) -> int:
                     f"faces {count}  score {match.score:+.3f}  "
                     f"profile {match.profile or '-'}  -> {verdict}"
                 )
-                time.sleep(cfg.interval)
+                time.sleep(0.25)
     except KeyboardInterrupt:
         pass
     print()
@@ -115,29 +115,28 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
     mode = " [dry run]" if args.dry_run else ""
     print(
-        f"watching{mode} - lock after {cfg.timeout:.1f}s away, "
-        f"{cfg.unknown_face_timeout:.1f}s with a stranger in frame (threshold {cfg.threshold:.3f})"
+        f"watching{mode} - a check every {cfg.interval:.0f}s; when you are missing, "
+        f"{cfg.confirm_checks} checks {cfg.recheck_interval:.0f}s apart lock the screen"
     )
-    log.info("watch started (timeout %.1fs threshold %.3f dry_run=%s)",
-             cfg.timeout, cfg.threshold, args.dry_run)
+    log.info("watch started (interval %.0fs recheck %.0fs checks %d dry_run=%s)",
+             cfg.interval, cfg.recheck_interval, cfg.confirm_checks, args.dry_run)
 
     def observe(decision: Decision, reading: Reading) -> None:
         if args.verbose:
             _status_line(
                 f"{STATE_GLYPH[decision.state]} score {reading.match.score:+.3f} "
-                f"faces {reading.face_count} away {decision.away:4.1f}/{decision.deadline:.1f}s"
+                f"faces {reading.face_count} miss {decision.misses}/{decision.needed}"
             )
         if decision.event is Event.WARN:
-            if cfg.sound:
-                notify.play()
-            if cfg.notify:
-                notify.banner("facelock", f"locking in {cfg.warn_before:.0f}s")
-            log.debug("warn (state=%s away=%.1fs)", decision.state.value, decision.away)
+            wait = (cfg.stranger_interval if decision.state is State.STRANGER
+                    else cfg.recheck_interval)
+            macos.warn(cfg, f"locking in ~{wait:.0f}s unless I see you")
+            log.debug("warn (state=%s miss %d/%d)",
+                      decision.state.value, decision.misses, decision.needed)
         elif decision.event is Event.LOCK:
             verb = "would lock" if args.dry_run else "locking"
-            print(f"\n{time.strftime('%H:%M:%S')} {verb} ({decision.state.value}, "
-                  f"away {decision.away:.1f}s)")
-            log.info("%s (state=%s away=%.1fs)", verb, decision.state.value, decision.away)
+            print(f"\n{time.strftime('%H:%M:%S')} {verb} ({decision.state.value})")
+            log.info("%s (state=%s)", verb, decision.state.value)
 
     try:
         run(
@@ -186,16 +185,18 @@ def cmd_status(_: argparse.Namespace) -> int:
         print("paused      : until resumed")
     else:
         print(f"paused      : until {time.strftime('%H:%M:%S', time.localtime(expiry))}")
-    print(f"login agent : {'installed' if agent.installed() else 'not installed'}")
-    print(f"screen      : {'locked' if session.screen_locked() else 'unlocked'}")
+    print(f"app         : {'installed' if macos.APP_BUNDLE.exists() else 'not installed'} "
+          f"({macos.APP_BUNDLE})")
+    print(f"login agent : {'installed' if macos.agent_installed() else 'not installed'}")
+    print(f"screen      : {'locked' if macos.screen_locked() else 'unlocked'}")
     if len(enrollment):
         profiles = ", ".join(f"{n}({c})" for n, c in enrollment.profiles.items())
         print(f"enrolled    : {len(enrollment)} samples - {profiles}")
         print(f"              {enroll.quality_note(enrollment, cfg.threshold)}")
     else:
         print("enrolled    : nothing yet - run: facelock enroll")
-    print(f"settings    : timeout {cfg.timeout}s  threshold {cfg.threshold}  "
-          f"interval {cfg.interval}s  lock {cfg.lock_method}")
+    print(f"settings    : check every {cfg.interval}s, recheck {cfg.recheck_interval}s, "
+          f"{cfg.confirm_checks} checks to lock, threshold {cfg.threshold}, lock {cfg.lock_method}")
     recent = control.tail_log(5)
     if recent:
         print("recent      :")
@@ -215,8 +216,29 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_install_agent(_: argparse.Namespace) -> int:
-    path = agent.install()
+def cmd_install_app(_: argparse.Namespace) -> int:
+    path = macos.install_app()
+    print(f"installed {path}")
+    print("open it from ~/Applications (or Spotlight: FaceLock) - it lives in the menu bar")
+    print("tick 'Start at Login' in its menu to have it start automatically")
+    return 0
+
+
+def cmd_uninstall_app(_: argparse.Namespace) -> int:
+    removed_app = macos.uninstall_app()
+    removed_agent = macos.uninstall_agent()
+    if not (removed_app or removed_agent):
+        print("nothing installed")
+    else:
+        print("removed " + " and ".join(
+            name for name, hit in (("FaceLock.app", removed_app), ("login agent", removed_agent))
+            if hit
+        ))
+    return 0
+
+
+def cmd_install_agent(args: argparse.Namespace) -> int:
+    path = macos.install_agent("watch" if args.headless else "menubar")
     print(f"installed {path}")
     print("the agent inherits camera permission from the python binary it runs - if it never "
           "sees your face, run `facelock watch` once in a terminal and approve the prompt")
@@ -224,7 +246,7 @@ def cmd_install_agent(_: argparse.Namespace) -> int:
 
 
 def cmd_uninstall_agent(_: argparse.Namespace) -> int:
-    print("removed login agent" if agent.uninstall() else "no login agent installed")
+    print("removed login agent" if macos.uninstall_agent() else "no login agent installed")
     return 0
 
 
@@ -238,7 +260,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="facelock", description=__doc__)
     parser.add_argument("--camera", type=int, help="camera index")
     parser.add_argument("--threshold", type=float, help="cosine match threshold")
-    parser.add_argument("--interval", type=float, help="seconds between polls")
+    parser.add_argument("--interval", type=float, help="seconds between checks while present")
+    parser.add_argument("--recheck", type=float, help="seconds between checks once missing")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("enroll", help="capture reference samples of my face")
@@ -256,7 +279,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_test)
 
     p = sub.add_parser("watch", help="lock the screen when I am not in front of it")
-    p.add_argument("--timeout", type=float, help="seconds away before locking")
     p.add_argument("--dry-run", action="store_true", help="log instead of locking")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_watch)
@@ -279,9 +301,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--write", action="store_true", help="write a config.toml of the defaults")
     p.set_defaults(func=cmd_config)
 
-    sub.add_parser("install-agent", help="start at login via launchd").set_defaults(
-        func=cmd_install_agent
+    sub.add_parser("install-app", help="put FaceLock.app in ~/Applications").set_defaults(
+        func=cmd_install_app
     )
+    sub.add_parser("uninstall-app", help="remove FaceLock.app and the login agent").set_defaults(
+        func=cmd_uninstall_app
+    )
+
+    p = sub.add_parser("install-agent", help="start at login via launchd")
+    p.add_argument("--headless", action="store_true", help="run `watch` instead of the menu bar")
+    p.set_defaults(func=cmd_install_agent)
     sub.add_parser("uninstall-agent", help="remove the login agent").set_defaults(
         func=cmd_uninstall_agent
     )

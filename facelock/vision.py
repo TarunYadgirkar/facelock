@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import sys
 import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 
 import cv2
 import numpy as np
@@ -18,17 +21,29 @@ CAMERA_HELP = (
 EMPTY = np.empty((0, EMBEDDING_DIM), dtype=np.float32)
 
 
-class ModelsMissing(SystemExit):
-    pass
+def ensure_models(log: Callable[[str], None] = print) -> None:
+    """Fetch the two ONNX models on first use. ~40 MB, once, then never again."""
+    config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    for name, folder in config.MODELS.items():
+        target = config.MODELS_DIR / name
+        if target.exists():
+            continue
+        url = f"{config.MODEL_SOURCE}/{folder}/{name}"
+        log(f"downloading {name}")
+        partial = target.with_suffix(".part")
+        try:
+            urllib.request.urlretrieve(url, partial)
+        except (urllib.error.URLError, OSError) as exc:
+            partial.unlink(missing_ok=True)
+            raise SystemExit(f"could not download {name} from {url}: {exc}") from exc
+        partial.rename(target)
 
 
 class FaceEngine:
     """Detects faces on a downscaled frame, embeds them from the full-resolution frame."""
 
     def __init__(self, cfg: config.Config):
-        for path in (config.DETECTOR_MODEL, config.RECOGNIZER_MODEL):
-            if not path.exists():
-                raise ModelsMissing(f"missing model {path}\nrun ./setup.sh to download it")
+        ensure_models()
         self._cfg = cfg
         self._detector = cv2.FaceDetectorYN.create(
             str(config.DETECTOR_MODEL), "", (cfg.detect_width, cfg.detect_width),
