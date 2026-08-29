@@ -1,0 +1,69 @@
+"""Capture reference samples of a face from the webcam."""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+
+import numpy as np
+
+from . import config, vision
+from .identity import Enrollment
+
+Progress = Callable[[str], None]
+MIN_USEFUL_SAMPLES = 8
+POSES = (
+    "look straight at the camera",
+    "turn your head slightly left",
+    "turn your head slightly right",
+    "tilt your chin up a little",
+    "look at where your screen usually is",
+)
+
+
+def capture(
+    cfg: config.Config,
+    samples: int,
+    progress: Progress,
+    spacing: float = 0.35,
+    timeout: float = 90.0,
+) -> np.ndarray:
+    """Collect `samples` embeddings, prompting through a few head poses."""
+    engine = vision.FaceEngine(cfg)
+    collected: list[np.ndarray] = []
+    per_pose = max(1, samples // len(POSES))
+    deadline = time.monotonic() + timeout
+
+    with vision.Camera(cfg) as camera:
+        vision.warmup(camera)
+        while len(collected) < samples and time.monotonic() < deadline:
+            pose = POSES[min(len(collected) // per_pose, len(POSES) - 1)]
+            frame = camera.read()
+            if frame is None:
+                continue
+            count, embeddings = engine.faces_and_embeddings(frame)
+            if count == 1 and len(embeddings) == 1:
+                collected.append(embeddings[0])
+                progress(f"{len(collected)}/{samples}  {pose}")
+                time.sleep(spacing)
+            elif count > 1:
+                progress(f"{len(collected)}/{samples}  more than one face in shot - hold on")
+                time.sleep(spacing)
+            else:
+                progress(f"{len(collected)}/{samples}  no face detected - {pose}")
+
+    if len(collected) < MIN_USEFUL_SAMPLES:
+        raise SystemExit(
+            f"only captured {len(collected)} samples - try again with more light on your face"
+        )
+    return np.array(collected, dtype=np.float32)
+
+
+def quality_note(enrollment: Enrollment, threshold: float) -> str:
+    worst, mean = enrollment.separation()
+    if worst < threshold:
+        return (
+            f"self-similarity min {worst:.3f} is below the {threshold:.3f} threshold - "
+            "some captures disagree with each other, expect occasional false locks"
+        )
+    return f"self-similarity min {worst:.3f}, mean {mean:.3f} - healthy"

@@ -1,0 +1,92 @@
+"""Configuration: defaults, TOML file, CLI overrides."""
+
+from __future__ import annotations
+
+import os
+import tomllib
+from dataclasses import asdict, dataclass, fields, replace
+from pathlib import Path
+
+APP = "facelock"
+
+
+def _xdg(var: str, fallback: str) -> Path:
+    return Path(os.environ.get(var) or Path.home() / fallback) / APP
+
+
+CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config")
+STATE_DIR = _xdg("XDG_STATE_HOME", ".local/state")
+DATA_DIR = _xdg("XDG_DATA_HOME", ".local/share")
+
+CONFIG_FILE = CONFIG_DIR / "config.toml"
+ENROLLMENT_FILE = DATA_DIR / "enrollment.npz"
+LOG_FILE = STATE_DIR / "facelock.log"
+PAUSE_FILE = STATE_DIR / "pause"
+PID_FILE = STATE_DIR / "watcher.pid"
+
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+DETECTOR_MODEL = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
+RECOGNIZER_MODEL = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
+
+
+@dataclass(frozen=True)
+class Config:
+    camera: int = 0
+    frame_width: int = 640
+    frame_height: int = 480
+    detect_width: int = 320  # detection runs downscaled; alignment stays full res
+    detect_score: float = 0.85
+
+    threshold: float = 0.363  # SFace reference operating point
+    timeout: float = 3.0
+    unknown_face_timeout: float = 1.0  # someone else's face and not mine: lock sooner
+    warn_before: float = 1.0
+    interval: float = 0.25
+    alert_interval: float = 0.12  # faster polling once the deadline is near
+
+    lock_method: str = "suspend"  # suspend | sleep
+    sound: bool = True
+    notify: bool = True
+
+    def validate(self) -> Config:
+        if not 0.0 < self.threshold < 1.0:
+            raise ValueError("threshold must be between 0 and 1")
+        if self.timeout <= 0 or self.interval <= 0:
+            raise ValueError("timeout and interval must be positive")
+        if self.warn_before < 0 or self.warn_before >= self.timeout:
+            raise ValueError("warn_before must be >= 0 and less than timeout")
+        if self.lock_method not in ("suspend", "sleep"):
+            raise ValueError("lock_method must be 'suspend' or 'sleep'")
+        return self
+
+
+def load(path: Path = CONFIG_FILE) -> Config:
+    if not path.exists():
+        return Config()
+    with path.open("rb") as handle:
+        raw = tomllib.load(handle)
+    known = {f.name for f in fields(Config)}
+    unknown = set(raw) - known
+    if unknown:
+        raise ValueError(f"unknown keys in {path}: {', '.join(sorted(unknown))}")
+    return Config(**raw).validate()
+
+
+def with_overrides(config: Config, **overrides) -> Config:
+    live = {k: v for k, v in overrides.items() if v is not None}
+    return replace(config, **live).validate() if live else config
+
+
+def write_default(path: Path = CONFIG_FILE) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# facelock config - delete a line to fall back to the default", ""]
+    for key, value in asdict(Config()).items():
+        rendered = str(value).lower() if isinstance(value, bool) else repr(value)
+        lines.append(f"{key} = {rendered}")
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def ensure_dirs() -> None:
+    for directory in (CONFIG_DIR, STATE_DIR, DATA_DIR):
+        directory.mkdir(parents=True, exist_ok=True)
