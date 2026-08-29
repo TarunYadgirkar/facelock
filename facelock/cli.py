@@ -10,7 +10,7 @@ import time
 import numpy as np
 
 from . import agent, config, control, enroll, identity, notify, session, vision
-from .watcher import Decision, Event, Reading, State
+from .watcher import Decision, Event, Reading, State, run
 
 STATE_GLYPH = {State.PRESENT: "+", State.AWAY: "-", State.STRANGER: "!"}
 
@@ -138,8 +138,6 @@ def cmd_watch(args: argparse.Namespace) -> int:
             print(f"\n{time.strftime('%H:%M:%S')} {verb} ({decision.state.value}, "
                   f"away {decision.away:.1f}s)")
             log.info("%s (state=%s away=%.1fs)", verb, decision.state.value, decision.away)
-
-    from .watcher import run
 
     try:
         run(

@@ -45,8 +45,9 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
     class FaceLockApp(rumps.App):
         def __init__(self) -> None:
             super().__init__("facelock", title=shared.title, quit_button=None)
+            self.status_item = rumps.MenuItem("starting")
             self.menu = [
-                rumps.MenuItem("status", callback=None),
+                self.status_item,
                 None,
                 rumps.MenuItem("Pause 15 minutes", callback=self.pause_15),
                 rumps.MenuItem("Pause until resumed", callback=self.pause_forever),
@@ -59,7 +60,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
         def refresh(self, _) -> None:
             paused = control.is_paused()
             self.title = PAUSED_GLYPH if paused else shared.title
-            self.menu["status"].title = "paused" if paused else shared.detail
+            self.status_item.title = "paused" if paused else shared.detail
 
         def pause_15(self, _) -> None:
             control.pause(15 * 60)
