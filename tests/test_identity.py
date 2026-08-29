@@ -58,3 +58,14 @@ def test_require_refuses_an_empty_enrollment(tmp_path):
 def test_malformed_samples_rejected():
     with pytest.raises(ValueError):
         identity.Enrollment({"me": np.zeros((2, 5), dtype=np.float32)})
+
+
+def test_live_enrollment_picks_up_samples_added_while_watching(tmp_path):
+    path = tmp_path / "enrollment.npz"
+    identity.Enrollment({"me": np.array([unit(1)])}).save(path)
+    live = identity.Live(path)
+    taught = unit(2)
+    assert not live.best(np.array([taught])).accepted(0.9)
+
+    identity.load(path).with_profile("me", np.array([taught]), append=True).save(path)
+    assert live.best(np.array([taught])).accepted(0.9)

@@ -72,6 +72,31 @@ class Config:
         return self
 
 
+# Named cadences for the Settings menu, slowest first. "grace" is roughly how long
+# you can be out of frame before the screen locks.
+PRESETS = {
+    "Relaxed": {"interval": 60.0, "recheck_interval": 30.0, "stranger_interval": 10.0,
+                "confirm_checks": 3},
+    "Balanced": {"interval": 45.0, "recheck_interval": 20.0, "stranger_interval": 5.0,
+                 "confirm_checks": 3},
+    "Strict": {"interval": 20.0, "recheck_interval": 10.0, "stranger_interval": 2.0,
+               "confirm_checks": 2},
+}
+
+
+def preset_of(config: Config) -> str | None:
+    """Which named preset this config matches, if any."""
+    for name, values in PRESETS.items():
+        if all(getattr(config, key) == value for key, value in values.items()):
+            return name
+    return None
+
+
+def grace_seconds(config: Config) -> float:
+    """Worst case time between leaving and the lock, for the menu to state plainly."""
+    return config.interval + config.recheck_interval * (config.confirm_checks - 1)
+
+
 def load(path: Path = CONFIG_FILE) -> Config:
     if not path.exists():
         return Config()
@@ -92,14 +117,19 @@ def with_overrides(config: Config, **overrides) -> Config:
     return replace(config, **live).validate() if live else config
 
 
-def write_default(path: Path = CONFIG_FILE) -> Path:
+def write(config: Config, path: Path = CONFIG_FILE) -> Path:
+    """Persist a config; the menu bar's Settings items round-trip through here."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# facelock config - delete a line to fall back to the default", ""]
-    for key, value in asdict(Config()).items():
+    for key, value in asdict(config.validate()).items():
         rendered = str(value).lower() if isinstance(value, bool) else repr(value)
         lines.append(f"{key} = {rendered}")
     path.write_text("\n".join(lines) + "\n")
     return path
+
+
+def write_default(path: Path = CONFIG_FILE) -> Path:
+    return write(Config(), path)
 
 
 def ensure_dirs() -> None:

@@ -27,16 +27,23 @@ restart the terminal if the first capture fails.
 
 ## The app
 
-`FaceLock.app` lives in the menu bar (no Dock icon):
+`FaceLock.app` lives in the menu bar (no Dock icon) and everything is done from there —
+the terminal commands below are the same features for anyone who prefers them.
 
 - the bar icon tells the state: eye = you're here, crossed eye = missing and on the
-  clock, warning = someone else in frame, pause = paused ([Phosphor](https://phosphoricons.com) icons, MIT)
-- **Lock Now**, **Pause** (15 min / 1 hour / until resumed), **Resume** (grayed unless paused)
-- while paused the first menu line counts down: `paused - 12m left`
-- **Start at Login** — one click, no launchctl
+  clock, warning = someone else in frame, pause = paused, student = learning your face
+  ([Phosphor](https://phosphoricons.com) icons, MIT)
+- **Lock Now**, **Pause** (15 min / 1 hour / until resumed), **Resume** (grayed unless paused);
+  while paused the first menu line counts down: `paused - 12m left`
+- **Training ▸** teaches it a pose without re-enrolling: pick the lesson, get into the pose
+  during the countdown, and it captures ~15 more views and appends them. The running watcher
+  picks up the new samples immediately — no restart. **Start Over** redoes the full enrollment.
+- **Settings ▸** cadence preset (each line states how long you can be gone before it locks),
+  whether locking also turns the display off, the warning sound and banner, and **Start at Login**.
+  Changes are written to `config.toml` and restart the watcher in place.
 
-Prefer a terminal? `facelock watch -v` is the same watcher with a live status line, and
-`--dry-run` logs instead of locking while you build trust in it.
+**Relaunching after Quit**: Spotlight (⌘-space) → *FaceLock*, or open `~/Applications/FaceLock.app`.
+Tick **Start at Login** and it comes back by itself after a reboot.
 
 ## Commands
 

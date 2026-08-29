@@ -17,8 +17,12 @@ POSES = (
     "turn your head slightly left",
     "turn your head slightly right",
     "tilt your chin up a little",
+    "look down at your keyboard",
+    "look down at your phone, like you are reading it",
     "look at where your screen usually is",
 )
+# Teaching one pose does not need the tour, and must not veto itself on sample count.
+LEARN_POSES = ("hold the pose you want it to know",)
 
 
 def capture(
@@ -27,17 +31,19 @@ def capture(
     progress: Progress,
     spacing: float = 0.35,
     timeout: float = 90.0,
+    poses: tuple[str, ...] = POSES,
+    minimum: int = MIN_USEFUL_SAMPLES,
 ) -> np.ndarray:
-    """Collect `samples` embeddings, prompting through a few head poses."""
+    """Collect `samples` embeddings, prompting through `poses` as they are filled."""
     engine = vision.FaceEngine(cfg)
     collected: list[np.ndarray] = []
-    per_pose = max(1, samples // len(POSES))
+    per_pose = max(1, samples // len(poses))
     deadline = time.monotonic() + timeout
 
     with vision.Camera(cfg) as camera:
         vision.warmup(camera)
         while len(collected) < samples and time.monotonic() < deadline:
-            pose = POSES[min(len(collected) // per_pose, len(POSES) - 1)]
+            pose = poses[min(len(collected) // per_pose, len(poses) - 1)]
             frame = camera.read()
             if frame is None:
                 continue
@@ -52,7 +58,7 @@ def capture(
             else:
                 progress(f"{len(collected)}/{samples}  no face detected - {pose}")
 
-    if len(collected) < MIN_USEFUL_SAMPLES:
+    if len(collected) < minimum:
         raise SystemExit(
             f"only captured {len(collected)} samples - try again with more light on your face"
         )

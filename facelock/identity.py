@@ -92,3 +92,30 @@ def require(path: Path = config.ENROLLMENT_FILE) -> Enrollment:
     if len(enrollment) == 0:
         raise SystemExit(f"nothing enrolled yet ({path})\nrun: facelock enroll")
     return enrollment
+
+
+def stamp(path: Path = config.ENROLLMENT_FILE) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+class Live:
+    """An enrollment that picks up samples `facelock learn` adds while the watcher runs."""
+
+    def __init__(self, path: Path = config.ENROLLMENT_FILE):
+        self._path = path
+        self._enrollment = require(path)
+        self._seen = stamp(path)
+
+    def best(self, embeddings: np.ndarray) -> Match:
+        current = stamp(self._path)
+        if current is not None and current != self._seen:
+            self._enrollment = load(self._path)
+            self._seen = current
+        return self._enrollment.best(embeddings)
+
+    def __len__(self) -> int:
+        return len(self._enrollment)
