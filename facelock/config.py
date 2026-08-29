@@ -46,10 +46,11 @@ class Config:
     threshold: float = 0.363  # SFace reference operating point
 
     # Timing. A "check" is one look at the camera; the loop is a cadence, not a stopwatch.
-    interval: float = 30.0  # seconds between checks while I am here
-    recheck_interval: float = 10.0  # seconds until the next check once I am missing
-    stranger_interval: float = 2.0  # ... but only this long when someone else is in frame
-    confirm_checks: int = 2  # consecutive checks without me before the screen locks
+    # Defaults tolerate ~a minute of looking down at a phone before anything locks.
+    interval: float = 45.0  # seconds between checks while I am here
+    recheck_interval: float = 20.0  # seconds until the next check once I am missing
+    stranger_interval: float = 5.0  # ... but only this long when someone else is in frame
+    confirm_checks: int = 3  # consecutive checks without me before the screen locks
     frames_per_check: int = 3  # frames per check; the best match of the burst wins
 
     lock_method: str = "suspend"  # suspend | sleep

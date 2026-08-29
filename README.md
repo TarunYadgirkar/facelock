@@ -2,10 +2,12 @@
 
 Locks this Mac when **my** face stops showing up in front of the webcam.
 
-It does not stare at you. Every **30 seconds** it wakes the camera for a fraction of a second and
-takes one look. If you are there, it goes back to sleep. If you are not, it warns you (sound +
-banner) and looks again **10 seconds** later — still missing, the screen locks. A face that is
-in frame but *isn't yours* gets the fast track: rechecked after 2 seconds instead of 10.
+It does not stare at you. Every **45 seconds** it wakes the camera for a fraction of a second and
+takes one look. If you are there, it goes back to sleep. If you are not, it rechecks every
+**20 seconds** — after **3** misses in a row (with a sound + banner warning before the last one)
+the screen locks, so glancing at your phone for a minute doesn't lock you out. A face that is
+in frame but *isn't yours* gets the fast track: rechecked after 5 seconds instead of 20.
+Locking shows the lock screen only — everything keeps running behind it.
 
 Face detection is OpenCV **YuNet**, identity is the **SFace** embedding compared by cosine
 similarity against locally enrolled samples. Everything runs offline on the CPU, no frame is ever
@@ -27,8 +29,10 @@ restart the terminal if the first capture fails.
 
 `FaceLock.app` lives in the menu bar (no Dock icon):
 
-- 👁 you're here 💤 missing, on the clock ⚠️ someone else in frame ⏸ paused
-- **Lock Now**, **Pause** (15 min / 1 hour / until resumed), **Resume**
+- the bar icon tells the state: eye = you're here, crossed eye = missing and on the
+  clock, warning = someone else in frame, pause = paused ([Phosphor](https://phosphoricons.com) icons, MIT)
+- **Lock Now**, **Pause** (15 min / 1 hour / until resumed), **Resume** (grayed unless paused)
+- while paused the first menu line counts down: `paused - 12m left`
 - **Start at Login** — one click, no launchctl
 
 Prefer a terminal? `facelock watch -v` is the same watcher with a live status line, and

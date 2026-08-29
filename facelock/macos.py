@@ -22,9 +22,7 @@ except ImportError:  # pragma: no cover
     CGSessionCopyCurrentDictionary = None
 
 LOGIN_FRAMEWORK = "/System/Library/PrivateFrameworks/login.framework/login"
-LOCK_COMMANDS = {
-    "sleep": ["pmset", "displaysleepnow"],
-}
+SLEEP_COMMAND = ["pmset", "displaysleepnow"]
 WARN_SOUND = "/System/Library/Sounds/Tink.aiff"
 
 AGENT_LABEL = "com.tarunyadgirkar.facelock"
@@ -53,17 +51,17 @@ def screen_locked() -> bool:
 
 
 def lock(method: str = "suspend") -> None:
+    """'suspend' shows the lock screen and nothing else stops; 'sleep' also darkens the display."""
     if method == "suspend":
         # The old CGSession -suspend binary is gone as of macOS 26.
         try:
             ctypes.CDLL(LOGIN_FRAMEWORK).SACLockScreenImmediate()
             return
         except (OSError, AttributeError):
-            method = "sleep"  # locks too, given require-password-immediately
-    command = LOCK_COMMANDS.get(method)
-    if command is None:
+            pass  # fall through: display sleep locks too, given require-password-immediately
+    elif method != "sleep":
         raise ValueError(f"unknown lock method {method!r}")
-    subprocess.run(command, check=False, capture_output=True)
+    subprocess.run(SLEEP_COMMAND, check=False, capture_output=True)
 
 
 # --- alerts ----------------------------------------------------------------

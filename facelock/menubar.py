@@ -1,32 +1,41 @@
-"""The menu bar app: the watcher plus a glyph, pause controls and a login toggle."""
+"""The menu bar app: the watcher plus a status icon, pause controls and a login toggle."""
 
 from __future__ import annotations
 
 import threading
+import time
+from pathlib import Path
 
 from . import config, control, identity, macos, vision
 from .watcher import Decision, Event, Reading, State, run
 
-# emoji-presentation glyphs; the bare text forms render nearly invisible in the menu bar
-GLYPH = {State.PRESENT: "👀", State.AWAY: "💤", State.STRANGER: "⚠️"}
-PAUSED_GLYPH = "⏸️"
+# Phosphor icons (MIT), rendered as template images so they match light/dark menu bars
+_ICONS = Path(__file__).parent / "icons"
+ICON = {
+    State.PRESENT: str(_ICONS / "eye-bold.svg"),
+    State.AWAY: str(_ICONS / "eye-slash-bold.svg"),
+    State.STRANGER: str(_ICONS / "warning-bold.svg"),
+}
+PAUSED_ICON = str(_ICONS / "pause-bold.svg")
 REFRESH_SECONDS = 0.5
+
+
+def _pause_label(expiry: float) -> str:
+    if expiry == control.FOREVER:
+        return "paused until resumed"
+    left = max(0.0, expiry - time.time())
+    return f"paused - {left / 60:.0f}m left" if left >= 60 else f"paused - {left:.0f}s left"
 
 
 class _Shared:
     """Watcher thread writes, menu bar thread reads. One assignment, no locking needed."""
 
-    def __init__(self, cfg: config.Config) -> None:
-        self._cfg = cfg
-        self.title = GLYPH[State.PRESENT]
+    def __init__(self) -> None:
+        self.icon = ICON[State.PRESENT]
         self.detail = "starting"
 
     def update(self, decision: Decision, reading: Reading) -> None:
-        self.title = GLYPH[decision.state]
-        if decision.event is Event.WARN:
-            wait = (self._cfg.stranger_interval if decision.state is State.STRANGER
-                    else self._cfg.recheck_interval)
-            macos.warn(self._cfg, f"locking in ~{wait:.0f}s unless I see you")
+        self.icon = ICON[decision.state]
         if decision.event is Event.LOCK:
             self.detail = "locked"
         elif decision.state is State.PRESENT:
@@ -49,13 +58,15 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
     vision.silence_opencv_logs()
     control.setup_logging()
     control.write_pid()
-    shared = _Shared(cfg)
+    shared = _Shared()
     stopping = threading.Event()
 
     class FaceLockApp(rumps.App):
         def __init__(self) -> None:
-            super().__init__("facelock", title=shared.title, quit_button=None)
+            super().__init__("facelock", icon=shared.icon, template=True, quit_button=None)
             self.status_item = rumps.MenuItem("starting")
+            self.resume_item = rumps.MenuItem("Resume")
+            self._was_paused = False
             self.login_item = rumps.MenuItem("Start at Login", callback=self.toggle_login)
             self.login_item.state = macos.agent_installed()
             self.menu = [
@@ -66,7 +77,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 rumps.MenuItem("Pause 15 minutes", callback=self.pause_15),
                 rumps.MenuItem("Pause 1 hour", callback=self.pause_hour),
                 rumps.MenuItem("Pause until resumed", callback=self.pause_forever),
-                rumps.MenuItem("Resume", callback=self.resume),
+                self.resume_item,
                 None,
                 self.login_item,
                 rumps.MenuItem("Quit", callback=self.quit),
@@ -74,9 +85,17 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
 
         @rumps.timer(REFRESH_SECONDS)
         def refresh(self, _) -> None:
-            paused = control.is_paused()
-            self.title = PAUSED_GLYPH if paused else shared.title
-            self.status_item.title = "paused" if paused else shared.detail
+            expiry = control.pause_expiry()
+            paused = expiry is not None
+            want = PAUSED_ICON if paused else shared.icon
+            if self.icon != want:
+                self.icon = want
+            label = _pause_label(expiry) if paused else shared.detail
+            if self.status_item.title != label:
+                self.status_item.title = label
+            if paused != self._was_paused:  # Resume is grayed while watching
+                self.resume_item.set_callback(self.resume if paused else None)
+                self._was_paused = paused
 
         def lock_now(self, _) -> None:
             macos.lock(cfg.lock_method)

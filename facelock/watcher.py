@@ -14,6 +14,8 @@ from .identity import NO_MATCH, Enrollment, Match
 # Keeping the camera powered between checks only pays off when the next one is close.
 KEEP_CAMERA_OPEN_UNDER = 5.0
 LOCK_SETTLE = 1.5
+READ_FAILURES_BEFORE_MISS = 3  # camera errors tolerated before they count against presence
+READ_FAILURE_LOG_MARKS = (1, 10)  # log the first, the tenth, then every hundredth
 
 
 class State(str, Enum):
@@ -86,6 +88,13 @@ def poll_delay(cfg: config.Config, decision: Decision) -> float:
     return cfg.stranger_interval if decision.state is State.STRANGER else cfg.recheck_interval
 
 
+def _alert(cfg: config.Config, decision: Decision, log: logging.Logger) -> None:
+    """WARN gets the sound and banner; every event gets a log line."""
+    if decision.event is Event.WARN:
+        macos.warn(cfg, f"locking in ~{poll_delay(cfg, decision):.0f}s unless I see you")
+    log.info("%s (state %s)", decision.event.value, decision.state.value)
+
+
 def look(camera: vision.Camera, engine: vision.FaceEngine, enrollment: Enrollment,
          frames: int) -> Reading | None:
     """One check: a short burst of frames, scored as its best match. None if the camera failed."""
@@ -146,21 +155,21 @@ def run(
             reading = look(camera, engine, enrollment, cfg.frames_per_check)
             if reading is None:  # unreadable camera: back off, then count it as a miss
                 read_failures += 1
-                if read_failures in (1, 10) or read_failures % 100 == 0:
+                if read_failures in READ_FAILURE_LOG_MARKS or read_failures % 100 == 0:
                     log.warning("camera read failed (%d in a row) - no camera permission?",
                                 read_failures)
                 camera.release()
                 _sleep(min(2.0 ** read_failures * 0.1, 5.0), should_stop)
-                if read_failures < 3:
+                if read_failures < READ_FAILURES_BEFORE_MISS:
                     continue
                 reading = Reading(NO_MATCH, 0)  # camera gone: fail toward locking, not open
-            read_failures = 0
+            else:
+                read_failures = 0
 
             decision = tracker.update(reading)
             observer(decision, reading)
             if decision.event is not None:
-                log.info("%s (state %s, score %+.2f)",
-                         decision.event.value, decision.state.value, reading.match.score)
+                _alert(cfg, decision, log)
 
             if decision.event is Event.LOCK and not dry_run:
                 macos.lock(cfg.lock_method)

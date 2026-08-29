@@ -127,16 +127,9 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 f"{STATE_GLYPH[decision.state]} score {reading.match.score:+.3f} "
                 f"faces {reading.face_count} miss {decision.misses}/{decision.needed}"
             )
-        if decision.event is Event.WARN:
-            wait = (cfg.stranger_interval if decision.state is State.STRANGER
-                    else cfg.recheck_interval)
-            macos.warn(cfg, f"locking in ~{wait:.0f}s unless I see you")
-            log.debug("warn (state=%s miss %d/%d)",
-                      decision.state.value, decision.misses, decision.needed)
-        elif decision.event is Event.LOCK:
+        if decision.event is Event.LOCK:
             verb = "would lock" if args.dry_run else "locking"
             print(f"\n{time.strftime('%H:%M:%S')} {verb} ({decision.state.value})")
-            log.info("%s (state=%s)", verb, decision.state.value)
 
     try:
         run(
