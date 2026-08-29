@@ -85,12 +85,16 @@ class _Watcher:
         )
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 10.0) -> None:
         """Returns once the watcher has let go of the camera."""
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=10.0)
+            self._thread.join(timeout=timeout)
             self._thread = None
+
+    def restart(self, cfg: config.Config) -> None:
+        """Off the main thread: stopping waits for a check to finish, which would freeze the menu."""
+        threading.Thread(target=self.start, args=(cfg,), daemon=True).start()
 
 
 def main(cfg: config.Config, dry_run: bool = False) -> int:
@@ -185,7 +189,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             self.cfg = config.with_overrides(self.cfg, **changes)
             config.write(self.cfg)
             self._sync_settings()
-            watcher.start(self.cfg)
+            watcher.restart(self.cfg)
 
         # --- state ---------------------------------------------------------
 
@@ -297,7 +301,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 watcher.start(self.cfg)
 
         def quit(self, _) -> None:
-            watcher.stop()
+            watcher.stop(timeout=2.0)  # a daemon thread; do not make quitting wait on a check
             rumps.quit_application()
 
     try:
