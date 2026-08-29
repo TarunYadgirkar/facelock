@@ -7,8 +7,9 @@ import threading
 from . import config, control, identity, macos, vision
 from .watcher import Decision, Event, Reading, State, run
 
-GLYPH = {State.PRESENT: "\N{EYE}", State.AWAY: "\N{SLEEPING SYMBOL}", State.STRANGER: "\N{WARNING SIGN}"}
-PAUSED_GLYPH = "\N{DOUBLE VERTICAL BAR}"
+# emoji-presentation glyphs; the bare text forms render nearly invisible in the menu bar
+GLYPH = {State.PRESENT: "👀", State.AWAY: "💤", State.STRANGER: "⚠️"}
+PAUSED_GLYPH = "⏸️"
 REFRESH_SECONDS = 0.5
 
 
