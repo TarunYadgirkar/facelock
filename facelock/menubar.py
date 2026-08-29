@@ -42,6 +42,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
     config.ensure_dirs()
     vision.silence_opencv_logs()
     control.setup_logging()
+    control.write_pid()
     shared = _Shared()
     stopping = threading.Event()
 
@@ -108,6 +109,9 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
         daemon=True,
     )
     worker.start()
-    FaceLockApp().run()
-    stopping.set()
+    try:
+        FaceLockApp().run()
+    finally:
+        stopping.set()
+        control.clear_pid()
     return 0
