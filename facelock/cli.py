@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from . import config, control, enroll, identity, macos, vision
+from . import config, control, enroll, identity, macos, vision, watcher
 from .watcher import Decision, Event, Reading, State, run
 
 STATE_GLYPH = {State.PRESENT: "+", State.AWAY: "-", State.STRANGER: "!"}
@@ -115,8 +115,9 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
     mode = " [dry run]" if args.dry_run else ""
     print(
-        f"watching{mode} - a check every {cfg.interval:.0f}s; when you are missing, "
-        f"{cfg.confirm_checks} checks {cfg.recheck_interval:.0f}s apart lock the screen"
+        f"watching{mode} - a check every {cfg.interval:.0f}s; once you are missing the "
+        f"rechecks close in and {cfg.confirm_checks} of them lock the screen "
+        f"(~{config.grace_seconds(cfg):.0f}s at worst)"
     )
     log.info("watch started (interval %.0fs recheck %.0fs checks %d dry_run=%s)",
              cfg.interval, cfg.recheck_interval, cfg.confirm_checks, args.dry_run)
@@ -188,8 +189,12 @@ def cmd_status(_: argparse.Namespace) -> int:
         print(f"              {enroll.quality_note(enrollment, cfg.threshold)}")
     else:
         print("enrolled    : nothing yet - run: facelock enroll")
-    print(f"settings    : check every {cfg.interval}s, recheck {cfg.recheck_interval}s, "
-          f"{cfg.confirm_checks} checks to lock, threshold {cfg.threshold}, lock {cfg.lock_method}")
+    rechecks = ", ".join(f"{watcher.recheck_delay(cfg, miss):.0f}s"
+                         for miss in range(1, cfg.confirm_checks))
+    print(f"settings    : check every {cfg.interval:.0f}s, then rechecks at {rechecks} - "
+          f"locks ~{config.grace_seconds(cfg):.0f}s after you leave, at worst")
+    print(f"              threshold {cfg.threshold}, lock {cfg.lock_method}, "
+          f"{config.preset_of(cfg) or 'custom'} cadence")
     recent = control.tail_log(5)
     if recent:
         print("recent      :")

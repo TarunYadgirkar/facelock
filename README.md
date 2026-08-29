@@ -2,11 +2,11 @@
 
 Locks this Mac when **my** face stops showing up in front of the webcam.
 
-It does not stare at you. Every **45 seconds** it wakes the camera for a fraction of a second and
-takes one look. If you are there, it goes back to sleep. If you are not, it rechecks every
-**20 seconds** — after **3** misses in a row (with a sound + banner warning before the last one)
-the screen locks, so glancing at your phone for a minute doesn't lock you out. A face that is
-in frame but *isn't yours* gets the fast track: rechecked after 5 seconds instead of 20.
+It does not stare at you. Every **30 seconds** it wakes the camera for a fraction of a second and
+takes one look. If you are there, it goes back to sleep. If you are not, the rechecks close in —
+**10s**, then **5s** — and the third miss locks the screen, about **45 seconds** after you left at
+worst. Missing once is cheap; missing twice means you are gone, so it stops waiting around.
+A face that is in frame but *isn't yours* gets its own fast cadence.
 Locking shows the lock screen only — everything keeps running behind it.
 
 Face detection is OpenCV **YuNet**, identity is the **SFace** embedding compared by cosine
@@ -65,9 +65,10 @@ Tick **Start at Login** and it comes back by itself after a reboot.
 
 - **Present** — one check every `interval` (30 s). Each check is a 3-frame burst; the best frame
   wins, so one blurry frame never counts against you.
-- **Missing** — warn, then recheck every `recheck_interval` (10 s). `confirm_checks` (2)
-  consecutive checks without you lock the screen.
-- **Stranger** — a face that isn't yours is rechecked after `stranger_interval` (2 s), so someone
+- **Missing** — the first recheck waits `recheck_interval` (10 s) and each one after it waits
+  `recheck_decay` (0.5) of the last, down to a 2 s floor. `confirm_checks` (3) consecutive
+  checks without you lock the screen, warning before the final one.
+- **Stranger** — a face that isn't yours is rechecked after `stranger_interval` (5 s), so someone
   sitting down at your machine locks it in seconds.
 - **Locked or paused** — the camera stays released and nothing polls. Watching resumes on unlock.
 - **Camera trouble** — an unreadable frame counts as a miss (fail secure), with exponential
@@ -88,9 +89,10 @@ resident (OpenCV + the two models).
 | Key | Default | Meaning |
 |---|---|---|
 | `interval` | `30.0` | seconds between checks while you are present |
-| `recheck_interval` | `10.0` | seconds between checks once you are missing |
-| `stranger_interval` | `2.0` | recheck spacing when an unknown face is in frame |
-| `confirm_checks` | `2` | consecutive missed checks before locking |
+| `recheck_interval` | `10.0` | wait before the first recheck once you are missing |
+| `recheck_decay` | `0.5` | each further recheck waits this much of the last (2 s floor) |
+| `stranger_interval` | `5.0` | recheck spacing when an unknown face is in frame |
+| `confirm_checks` | `3` | consecutive missed checks before locking |
 | `frames_per_check` | `3` | frames per burst; the best match wins |
 | `threshold` | `0.363` | cosine similarity required to count as you |
 | `detect_width` | `320` | detection downscale; raise it if faces are missed at a distance |
@@ -104,8 +106,8 @@ log and pause file in `~/.local/state/facelock/`, models in `models/` (auto-down
 
 - A photo of you on a phone screen will pass. No liveness check — this is a convenience lock,
   not authentication.
-- Worst-case walk-away exposure is `interval + confirm_checks × recheck_interval` (~50 s with
-  defaults). Tighten `interval` if that is too long for your threat model; the old always-on
+- Worst-case walk-away exposure is `interval` plus the shrinking rechecks — ~45 s on the Balanced
+  preset, ~21 s on Strict. Settings ▸ states the number for each preset; the old always-on
   behaviour is roughly `interval = 1, recheck_interval = 1, confirm_checks = 3`.
 - Poor or backlit lighting drops match scores. Enroll a second profile with `--add` under the
   conditions that fail rather than lowering the threshold globally.

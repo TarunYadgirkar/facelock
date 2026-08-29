@@ -47,9 +47,10 @@ class Config:
 
     # Timing. A "check" is one look at the camera; the loop is a cadence, not a stopwatch.
     # Defaults tolerate ~a minute of looking down at a phone before anything locks.
-    interval: float = 45.0  # seconds between checks while I am here
-    recheck_interval: float = 20.0  # seconds until the next check once I am missing
-    stranger_interval: float = 5.0  # ... but only this long when someone else is in frame
+    interval: float = 30.0  # seconds between checks while I am here
+    recheck_interval: float = 10.0  # seconds until the next check once I am missing
+    recheck_decay: float = 0.5  # ... and each further miss waits this much of the last one
+    stranger_interval: float = 5.0  # someone else in frame gets its own, faster cadence
     confirm_checks: int = 3  # consecutive checks without me before the screen locks
     frames_per_check: int = 3  # frames per check; the best match of the burst wins
 
@@ -63,6 +64,8 @@ class Config:
         for name in ("interval", "recheck_interval", "stranger_interval"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
+        if not 0.0 < self.recheck_decay <= 1.0:
+            raise ValueError("recheck_decay must be above 0 and at most 1")
         if self.confirm_checks < 1:
             raise ValueError("confirm_checks must be at least 1")
         if self.frames_per_check < 1:
@@ -75,11 +78,11 @@ class Config:
 # Named cadences for the Settings menu, slowest first. "grace" is roughly how long
 # you can be out of frame before the screen locks.
 PRESETS = {
-    "Relaxed": {"interval": 60.0, "recheck_interval": 30.0, "stranger_interval": 10.0,
+    "Relaxed": {"interval": 45.0, "recheck_interval": 15.0, "stranger_interval": 8.0,
                 "confirm_checks": 3},
-    "Balanced": {"interval": 45.0, "recheck_interval": 20.0, "stranger_interval": 5.0,
+    "Balanced": {"interval": 30.0, "recheck_interval": 10.0, "stranger_interval": 5.0,
                  "confirm_checks": 3},
-    "Strict": {"interval": 20.0, "recheck_interval": 10.0, "stranger_interval": 2.0,
+    "Strict": {"interval": 15.0, "recheck_interval": 6.0, "stranger_interval": 2.0,
                "confirm_checks": 2},
 }
 
@@ -94,7 +97,10 @@ def preset_of(config: Config) -> str | None:
 
 def grace_seconds(config: Config) -> float:
     """Worst case time between leaving and the lock, for the menu to state plainly."""
-    return config.interval + config.recheck_interval * (config.confirm_checks - 1)
+    from .watcher import recheck_delay  # local: watcher imports config
+
+    rechecks = sum(recheck_delay(config, miss) for miss in range(1, config.confirm_checks))
+    return config.interval + rechecks
 
 
 def load(path: Path = CONFIG_FILE) -> Config:

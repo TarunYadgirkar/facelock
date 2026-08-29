@@ -14,6 +14,7 @@ from .identity import NO_MATCH, Enrollment, Match
 # Keeping the camera powered between checks only pays off when the next one is close.
 KEEP_CAMERA_OPEN_UNDER = 5.0
 LOCK_SETTLE = 1.5
+MIN_RECHECK = 2.0  # however far the rechecks escalate, never spin the camera faster than this
 READ_FAILURES_BEFORE_MISS = 3  # camera errors tolerated before they count against presence
 READ_FAILURE_LOG_MARKS = (1, 10)  # log the first, the tenth, then every hundredth
 
@@ -81,11 +82,18 @@ class PresenceTracker:
         return Decision(state, self._misses, needed)
 
 
+def recheck_delay(cfg: config.Config, misses: int) -> float:
+    """Each further miss waits less: once you look gone, stay unlocked for as little as possible."""
+    return max(MIN_RECHECK, cfg.recheck_interval * cfg.recheck_decay ** max(0, misses - 1))
+
+
 def poll_delay(cfg: config.Config, decision: Decision) -> float:
     """Slow cadence while I am plainly here, faster once something is on the clock."""
     if decision.state is State.PRESENT:
         return cfg.interval
-    return cfg.stranger_interval if decision.state is State.STRANGER else cfg.recheck_interval
+    if decision.state is State.STRANGER:
+        return cfg.stranger_interval
+    return recheck_delay(cfg, decision.misses)
 
 
 def _alert(cfg: config.Config, decision: Decision, log: logging.Logger) -> None:

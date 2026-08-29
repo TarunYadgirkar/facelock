@@ -15,9 +15,9 @@ def test_preset_of_names_a_matching_cadence():
     assert config.preset_of(config.Config(interval=7.0)) is None
 
 
-def test_grace_counts_the_rechecks_after_the_first_miss():
-    cfg = config.Config(interval=45.0, recheck_interval=20.0, confirm_checks=3)
-    assert config.grace_seconds(cfg) == 85.0
+def test_grace_counts_the_escalating_rechecks_after_the_first_miss():
+    cfg = config.Config(interval=45.0, recheck_interval=20.0, recheck_decay=0.5, confirm_checks=3)
+    assert config.grace_seconds(cfg) == 45.0 + 20.0 + 10.0
 
 
 def test_write_refuses_an_invalid_config(tmp_path):

@@ -2,7 +2,8 @@ import pytest
 
 from facelock.config import Config
 from facelock.identity import Match
-from facelock.watcher import Decision, Event, PresenceTracker, Reading, State, poll_delay
+from facelock.watcher import (MIN_RECHECK, Decision, Event, PresenceTracker, Reading, State,
+                              poll_delay)
 
 CFG = Config(threshold=0.4, interval=30.0, recheck_interval=10.0,
              stranger_interval=2.0, confirm_checks=2)
@@ -79,6 +80,17 @@ def test_poll_delay_follows_the_state(state, expected):
     assert poll_delay(CFG, Decision(state, 1, 2)) == expected
 
 
+def test_each_further_miss_rechecks_sooner():
+    cfg = Config(recheck_interval=10.0, recheck_decay=0.5)
+    waits = [poll_delay(cfg, Decision(State.AWAY, miss, 4)) for miss in (1, 2, 3)]
+    assert waits == [10.0, 5.0, 2.5]
+
+
+def test_rechecks_never_spin_faster_than_the_floor():
+    cfg = Config(recheck_interval=4.0, recheck_decay=0.1)
+    assert poll_delay(cfg, Decision(State.AWAY, 5, 6)) == MIN_RECHECK
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -87,6 +99,8 @@ def test_poll_delay_follows_the_state(state, expected):
         {"confirm_checks": 0},
         {"frames_per_check": 0},
         {"recheck_interval": 0.0},
+        {"recheck_decay": 0.0},
+        {"recheck_decay": 1.5},
         {"interval": 0.0},
     ],
 )
