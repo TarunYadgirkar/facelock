@@ -147,9 +147,6 @@ def run(
     tracker = PresenceTracker(cfg)
     log = logging.getLogger(config.APP)
     read_failures = 0
-    awake = macos.StayAwake()
-    if cfg.stay_awake:
-        awake.start()
 
     try:
         while not should_stop():
@@ -194,4 +191,3 @@ def run(
             _sleep(delay, should_stop)
     finally:
         camera.release()
-        awake.stop()

@@ -55,7 +55,6 @@ class Config:
     frames_per_check: int = 3  # frames per check; the best match of the burst wins
 
     lock_method: str = "suspend"  # suspend | sleep
-    stay_awake: bool = True  # hold off idle sleep on AC power, so the lock screen stays up
     sound: bool = True
     notify: bool = True
 

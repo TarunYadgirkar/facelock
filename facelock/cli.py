@@ -195,7 +195,6 @@ def cmd_status(_: argparse.Namespace) -> int:
           f"locks ~{config.grace_seconds(cfg):.0f}s after you leave, at worst")
     print(f"              threshold {cfg.threshold}, lock {cfg.lock_method}, "
           f"{config.preset_of(cfg) or 'custom'} cadence")
-    print(f"              {'holds off' if cfg.stay_awake else 'allows'} idle sleep on AC power")
     recent = control.tail_log(5)
     if recent:
         print("recent      :")

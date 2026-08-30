@@ -170,12 +170,10 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             menu.add(rumps.separator)
             self.lock_item = rumps.MenuItem("Also turn the display off",
                                             callback=self.toggle_lock_method)
-            self.awake_item = rumps.MenuItem("Stay awake while plugged in",
-                                             callback=self.toggle_stay_awake)
             self.sound_item = rumps.MenuItem("Warning sound", callback=self.toggle_sound)
             self.notify_item = rumps.MenuItem("Warning banner", callback=self.toggle_notify)
             self.login_item = rumps.MenuItem("Start at Login", callback=self.toggle_login)
-            for item in (self.lock_item, self.awake_item, self.sound_item, self.notify_item):
+            for item in (self.lock_item, self.sound_item, self.notify_item):
                 menu.add(item)
             menu.add(rumps.separator)
             menu.add(self.login_item)
@@ -191,7 +189,6 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 item.title = f"{name} - locks ~{grace / 60:.0f} min after you leave" if grace >= 90 \
                     else f"{name} - locks ~{grace:.0f}s after you leave"
             self.lock_item.state = self.cfg.lock_method == "sleep"
-            self.awake_item.state = self.cfg.stay_awake
             self.sound_item.state = self.cfg.sound
             self.notify_item.state = self.cfg.notify
             self.login_item.state = macos.agent_installed()
@@ -251,9 +248,6 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
 
         def toggle_lock_method(self, _) -> None:
             self._apply(lock_method="suspend" if self.cfg.lock_method == "sleep" else "sleep")
-
-        def toggle_stay_awake(self, _) -> None:
-            self._apply(stay_awake=not self.cfg.stay_awake)
 
         def toggle_sound(self, _) -> None:
             self._apply(sound=not self.cfg.sound)
