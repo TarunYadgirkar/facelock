@@ -104,6 +104,14 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
     except ImportError:
         raise SystemExit("menu bar mode needs rumps: .venv/bin/pip install rumps")
 
+    running = control.running_pid()
+    if running is not None:
+        # Opening the app while it is already up would put a second eye in the menu bar and a
+        # second process on the camera. Exit 0 so launchd's KeepAlive does not retry in a loop.
+        macos.banner("facelock", "already running - the eye is in the menu bar")
+        print(f"facelock is already running (pid {running})")
+        return 0
+
     identity.require()
     config.ensure_dirs()
     vision.silence_opencv_logs()
