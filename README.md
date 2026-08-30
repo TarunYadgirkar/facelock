@@ -39,7 +39,8 @@ the terminal commands below are the same features for anyone who prefers them.
   during the countdown, and it captures ~15 more views and appends them. The running watcher
   picks up the new samples immediately — no restart. **Start Over** redoes the full enrollment.
 - **Settings ▸** cadence preset (each line states how long you can be gone before it locks),
-  whether locking also turns the display off, the warning sound and banner, and **Start at Login**.
+  whether locking also turns the display off, **Stay awake while plugged in**, the warning
+  sound and banner, and **Start at Login**.
   Changes are written to `config.toml` and restart the watcher in place.
 
 **Relaunching after Quit**: Spotlight (⌘-space) → *FaceLock*, or open `~/Applications/FaceLock.app`.
@@ -75,6 +76,11 @@ Tick **Start at Login** and it comes back by itself after a reboot.
   backoff on reopening rather than a lock loop.
 - Locking calls `SACLockScreenImmediate` (the real lock screen); set
   `lock_method = "sleep"` for `pmset displaysleepnow` instead.
+- **Staying awake** — with `sleep = 1` in `pmset`, the Mac idle-sleeps a minute after the
+  lock screen darkens, which ends anything running in the background. While watching,
+  facelock holds `caffeinate -s -w <its pid>`: system sleep is held off, the display still
+  darkens, the assertion dies with the watcher even on SIGKILL, and macOS ignores `-s` on
+  battery — so it only ever applies on power. Untick it to let the Mac sleep as before.
 
 ## Cost
 
@@ -97,6 +103,7 @@ resident (OpenCV + the two models).
 | `threshold` | `0.363` | cosine similarity required to count as you |
 | `detect_width` | `320` | detection downscale; raise it if faces are missed at a distance |
 | `lock_method` | `"suspend"` | `suspend` or `sleep` |
+| `stay_awake` | `true` | hold off idle system sleep while on AC power |
 | `sound` / `notify` | `true` | warning cue and banner |
 
 State lives outside the repo: enrollment in `~/.local/share/facelock/enrollment.npz` (mode 600),
