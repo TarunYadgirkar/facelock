@@ -99,6 +99,7 @@ class _Watcher:
 
 def main(cfg: config.Config, dry_run: bool = False) -> int:
     try:
+        import AppKit
         import rumps
     except ImportError:
         raise SystemExit("menu bar mode needs rumps: .venv/bin/pip install rumps")
@@ -309,6 +310,13 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
         def quit(self, _) -> None:
             watcher.stop(timeout=2.0)  # a daemon thread; do not make quitting wait on a check
             rumps.quit_application()
+
+    # The agent runs the bare python binary, whose bundle is Python.app - a Foreground app,
+    # hence a rocket in the Dock. Accessory at runtime keeps the status item (LSUIElement in a
+    # bundle plist does not, on macOS 26).
+    AppKit.NSApplication.sharedApplication().setActivationPolicy_(
+        AppKit.NSApplicationActivationPolicyAccessory
+    )
 
     try:
         FaceLockApp().run()
