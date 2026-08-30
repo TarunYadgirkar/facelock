@@ -125,6 +125,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             super().__init__("FaceLock", icon=shared.icon, template=True, quit_button=None)
             self.cfg = cfg
             self.learning = ""  # non-empty while a lesson is capturing
+            self._named = False  # rumps builds the status item in run(), not here
             self.status_item = rumps.MenuItem("starting")
             self.resume_item = rumps.MenuItem("Resume")
             self._was_paused = False
@@ -204,6 +205,13 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
 
         @rumps.timer(REFRESH_SECONDS)
         def refresh(self, _) -> None:
+            if not self._named:
+                # Name the slot so where you cmd-drag the eye to survives a restart; unnamed,
+                # it is keyed to org.python.python and shared with any other python app.
+                item = getattr(self, "nsstatusitem", None)
+                if item is not None:
+                    item.setAutosaveName_("facelock")
+                    self._named = True
             expiry = control.pause_expiry()
             paused = expiry is not None
             if self.learning:
