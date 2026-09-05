@@ -31,6 +31,8 @@ LESSONS = (
     ("Teach: looking down at my phone", "look down at your phone"),
     ("Teach: looking down at the keyboard", "look down at the keyboard"),
     ("Teach: turned to one side", "turn your head to one side"),
+    ("Teach: with AirPods in", "put your AirPods in and look at the screen"),
+    ("Teach: without AirPods", "take your AirPods out and look at the screen"),
     ("Teach: whatever I am doing now", "hold still"),
 )
 
