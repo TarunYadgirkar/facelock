@@ -33,9 +33,10 @@ def capture(
     timeout: float = 90.0,
     poses: tuple[str, ...] = POSES,
     minimum: int = MIN_USEFUL_SAMPLES,
+    recognizer: str = config.DEFAULT_RECOGNIZER,
 ) -> np.ndarray:
     """Collect `samples` embeddings, prompting through `poses` as they are filled."""
-    engine = vision.FaceEngine(cfg)
+    engine = vision.FaceEngine(cfg, recognizer)
     collected: list[np.ndarray] = []
     per_pose = max(1, samples // len(poses))
     deadline = time.monotonic() + timeout

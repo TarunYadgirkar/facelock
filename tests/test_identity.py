@@ -4,18 +4,24 @@ import pytest
 from facelock import identity
 
 
-def unit(seed, dim=identity.EMBEDDING_DIM):
+def unit(seed, dim=identity.embedding_dim("arcface")):
     rng = np.random.default_rng(seed)
     vec = rng.normal(size=dim).astype(np.float32)
     return vec / np.linalg.norm(vec)
 
 
 def test_best_match_reports_score_and_profile():
-    mine = np.array([unit(1), unit(2)])
+    mine = np.array([unit(1), unit(1), unit(1)])
     enrollment = identity.Enrollment({"me": mine})
     match = enrollment.best(np.array([mine[1]]))
     assert match.profile == "me"
     assert match.score == pytest.approx(1.0, abs=1e-5)
+
+
+def test_one_identical_view_among_unrelated_ones_is_not_a_full_match():
+    """Scores average the closest few views, so a single lucky template cannot carry a stranger."""
+    enrollment = identity.Enrollment({"me": np.array([unit(1), unit(2), unit(3)])})
+    assert enrollment.best(np.array([unit(1)])).score == pytest.approx(1 / 3, abs=0.05)
 
 
 def test_best_match_picks_the_owning_profile():
@@ -25,7 +31,7 @@ def test_best_match_picks_the_owning_profile():
 
 def test_no_faces_and_no_enrollment_score_zero():
     enrollment = identity.Enrollment({"me": np.array([unit(1)])})
-    assert enrollment.best(np.empty((0, identity.EMBEDDING_DIM))) is identity.NO_MATCH
+    assert enrollment.best(np.empty((0, identity.embedding_dim("arcface")))) is identity.NO_MATCH
     assert identity.Enrollment({}).best(np.array([unit(1)])) is identity.NO_MATCH
 
 
@@ -65,7 +71,7 @@ def test_live_enrollment_picks_up_samples_added_while_watching(tmp_path):
     identity.Enrollment({"me": np.array([unit(1)])}).save(path)
     live = identity.Live(path)
     taught = unit(2)
-    assert not live.best(np.array([taught])).accepted(0.9)
+    assert live.best(np.array([taught])).score < 0.1
 
     identity.load(path).with_profile("me", np.array([taught]), append=True).save(path)
-    assert live.best(np.array([taught])).accepted(0.9)
+    assert live.best(np.array([taught])).score > 0.45  # now one of its two known views

@@ -23,6 +23,9 @@ except ImportError:  # pragma: no cover
 
 LOGIN_FRAMEWORK = "/System/Library/PrivateFrameworks/login.framework/login"
 SLEEP_COMMAND = ["pmset", "displaysleepnow"]
+# -i holds off idle system sleep on battery and on power alike; the display still darkens.
+# -w ties the assertion to our pid, so even a SIGKILL cannot leave it behind.
+AWAKE_COMMAND = ["caffeinate", "-i", "-w"]
 WARN_SOUND = "/System/Library/Sounds/Tink.aiff"
 
 AGENT_LABEL = "com.tarunyadgirkar.facelock"
@@ -62,6 +65,43 @@ def lock(method: str = "suspend") -> None:
     elif method != "sleep":
         raise ValueError(f"unknown lock method {method!r}")
     subprocess.run(SLEEP_COMMAND, check=False, capture_output=True)
+
+
+class StayAwake:
+    """Holds off idle system sleep while engaged, so a locked Mac stays a locked Mac.
+
+    pmset on this machine puts the system to sleep a minute after the display darkens,
+    which ends downloads, builds and anything else running behind the lock screen.
+    """
+
+    def __init__(self) -> None:
+        self._process: subprocess.Popen | None = None
+
+    @property
+    def held(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    def start(self) -> None:
+        if self.held:
+            return
+        try:
+            self._process = subprocess.Popen(
+                [*AWAKE_COMMAND, str(os.getpid())],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError:  # no caffeinate: nothing to hold
+            self._process = None
+
+    def stop(self) -> None:
+        if self._process is None:
+            return
+        if self._process.poll() is None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+        self._process = None
 
 
 # --- alerts ----------------------------------------------------------------

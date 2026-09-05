@@ -35,7 +35,7 @@ def test_no_faces_in_a_blank_frame():
     engine = vision.FaceEngine(config.Config())
     count, embeddings = engine.faces_and_embeddings(np.zeros((480, 640, 3), dtype=np.uint8))
     assert count == 0
-    assert embeddings.shape == (0, 128)
+    assert embeddings.shape == (0, 512)
 
 
 def test_embeddings_are_unit_length():
@@ -49,12 +49,11 @@ def test_embeddings_are_unit_length():
 
 def test_models_download_only_when_missing(tmp_path, monkeypatch):
     """First run fetches; later runs must not touch the network."""
-    source = tmp_path / "zoo" / "folder"
-    source.mkdir(parents=True)
+    source = tmp_path / "zoo"
+    source.mkdir()
     (source / "model.onnx").write_bytes(b"weights")
     monkeypatch.setattr(config, "MODELS_DIR", tmp_path / "models")
-    monkeypatch.setattr(config, "MODELS", {"model.onnx": "folder"})
-    monkeypatch.setattr(config, "MODEL_SOURCE", (tmp_path / "zoo").as_uri())
+    monkeypatch.setattr(config, "MODELS", {"model.onnx": ((source / "model.onnx").as_uri(), None)})
 
     fetched = []
     vision.ensure_models(fetched.append)
@@ -65,10 +64,29 @@ def test_models_download_only_when_missing(tmp_path, monkeypatch):
     assert len(fetched) == 1  # already there, nothing downloaded
 
 
+def test_a_model_inside_a_zip_is_extracted(tmp_path, monkeypatch):
+    import zipfile
+
+    archive = tmp_path / "pack.zip"
+    with zipfile.ZipFile(archive, "w") as pack:
+        pack.writestr("inner.onnx", b"weights")
+        pack.writestr("other.onnx", b"noise")
+    monkeypatch.setattr(config, "MODELS_DIR", tmp_path / "models")
+    monkeypatch.setattr(config, "MODELS", {"inner.onnx": (archive.as_uri(), "inner.onnx")})
+    vision.ensure_models(lambda _: None)
+    assert (tmp_path / "models" / "inner.onnx").read_bytes() == b"weights"
+    assert sorted(p.name for p in (tmp_path / "models").iterdir()) == ["inner.onnx"]
+
+
 def test_a_failed_download_leaves_nothing_behind(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MODELS_DIR", tmp_path / "models")
-    monkeypatch.setattr(config, "MODELS", {"model.onnx": "folder"})
-    monkeypatch.setattr(config, "MODEL_SOURCE", (tmp_path / "empty").as_uri())
+    monkeypatch.setattr(config, "MODELS", {"model.onnx": ((tmp_path / "missing").as_uri(), None)})
     with pytest.raises(SystemExit):
         vision.ensure_models(lambda _: None)
     assert list((tmp_path / "models").iterdir()) == []
+
+
+def test_legacy_sface_engine_still_embeds():
+    engine = vision.FaceEngine(config.Config(), "sface")
+    count, embeddings = engine.faces_and_embeddings(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert (count, embeddings.shape) == (0, (0, 128))

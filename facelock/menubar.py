@@ -151,8 +151,12 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             menu = rumps.MenuItem("Training")
             self.enrollment_item = rumps.MenuItem("counting what it knows")
             self._enrollment_stamp = None
+            self.threshold_item = rumps.MenuItem("")
+            self.upgrade_item = rumps.MenuItem(
+                "Start Over to upgrade recognition - the old model let strangers through")
             menu.add(self.enrollment_item)
-            menu.add(rumps.MenuItem(f"counts as you at match {self.cfg.threshold:.2f} or better"))
+            menu.add(self.threshold_item)
+            menu.add(self.upgrade_item)
             menu.add(rumps.separator)
             for label, hint in LESSONS:
                 item = rumps.MenuItem(label, callback=self._lesson_callback(label, hint))
@@ -173,8 +177,10 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                                             callback=self.toggle_lock_method)
             self.sound_item = rumps.MenuItem("Warning sound", callback=self.toggle_sound)
             self.notify_item = rumps.MenuItem("Warning banner", callback=self.toggle_notify)
+            self.awake_item = rumps.MenuItem("Stay awake while locked",
+                                             callback=self.toggle_stay_awake)
             self.login_item = rumps.MenuItem("Start at Login", callback=self.toggle_login)
-            for item in (self.lock_item, self.sound_item, self.notify_item):
+            for item in (self.lock_item, self.awake_item, self.sound_item, self.notify_item):
                 menu.add(item)
             menu.add(rumps.separator)
             menu.add(self.login_item)
@@ -190,6 +196,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 item.title = f"{name} - locks ~{grace / 60:.0f} min after you leave" if grace >= 90 \
                     else f"{name} - locks ~{grace:.0f}s after you leave"
             self.lock_item.state = self.cfg.lock_method == "sleep"
+            self.awake_item.state = self.cfg.stay_awake
             self.sound_item.state = self.cfg.sound
             self.notify_item.state = self.cfg.notify
             self.login_item.state = macos.agent_installed()
@@ -234,8 +241,16 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 known = sum(enrollment.profiles.values())
                 worst, mean = enrollment.separation()
                 self.enrollment_item.title = (
-                    f"knows {known} views - they agree {mean:.2f}, worst pair {worst:.2f}"
+                    f"knows {known} views ({enrollment.recognizer}) - "
+                    f"they agree {mean:.2f}, worst pair {worst:.2f}"
                 )
+                legacy = enrollment.recognizer != config.DEFAULT_RECOGNIZER
+                self.upgrade_item.hidden = not legacy
+            if self.threshold_item.title != (want := self._threshold_label()):
+                self.threshold_item.title = want
+
+        def _threshold_label(self) -> str:
+            return f"counts as you at match {self.cfg.threshold:.2f} or better"
 
         # --- actions -------------------------------------------------------
 
@@ -256,6 +271,9 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
 
         def toggle_lock_method(self, _) -> None:
             self._apply(lock_method="suspend" if self.cfg.lock_method == "sleep" else "sleep")
+
+        def toggle_stay_awake(self, _) -> None:
+            self._apply(stay_awake=not self.cfg.stay_awake)
 
         def toggle_sound(self, _) -> None:
             self._apply(sound=not self.cfg.sound)
@@ -301,15 +319,25 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 for left in range(int(LEARN_COUNTDOWN), 0, -1):
                     self.learning = f"{hint} - starting in {left}"
                     time.sleep(1.0)
+                current = identity.load()
+                # A lesson extends the views it already has, so it must use their recognizer;
+                # Start Over is where the current model comes in.
+                recognizer = (config.DEFAULT_RECOGNIZER if replace_all or not len(current)
+                              else current.recognizer)
                 captured = enroll.capture(
                     self.cfg, samples, lambda text: setattr(self, "learning", text),
                     timeout=LEARN_WINDOW if poses is enroll.LEARN_POSES else 90.0,
-                    poses=poses, minimum=1,
+                    poses=poses, minimum=1, recognizer=recognizer,
                 )
-                current = identity.load()
-                updated = current.with_profile("me", captured, append=not replace_all)
+                base = current if not replace_all else identity.Enrollment({}, recognizer)
+                updated = base.with_profile("me", captured, append=not replace_all)
                 updated.save()
-                self.learning = f"learned {len(captured)} more views"
+                calibration = identity.calibrate(updated)
+                self.cfg = config.with_overrides(self.cfg, threshold=calibration.threshold)
+                config.write(self.cfg)
+                self.learning = (f"learned {len(captured)} views - "
+                                 f"strangers top out at {calibration.stranger_max:.2f}, "
+                                 f"you count from {calibration.threshold:.2f}")
             except (SystemExit, Exception) as error:  # a failed lesson must not kill the app
                 self.learning = f"could not learn that: {error}"
             finally:

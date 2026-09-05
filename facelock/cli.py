@@ -31,19 +31,50 @@ def _status_line(text: str) -> None:
     sys.stdout.flush()
 
 
+def _recalibrate(cfg: config.Config, enrollment: identity.Enrollment) -> config.Config:
+    """Set the threshold from this enrollment against the impostor bank and persist it."""
+    calibration = identity.calibrate(enrollment)
+    updated = config.with_overrides(cfg, threshold=calibration.threshold)
+    config.write(updated)
+    print(calibration.note())
+    return updated
+
+
 def cmd_enroll(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
     config.ensure_dirs()
-    print(f"enrolling profile {args.profile!r} - {args.samples} samples")
-    samples = enroll.capture(cfg, args.samples, _status_line)
-    print()
     current = identity.load()
-    updated = current.with_profile(args.profile, samples, append=args.add)
+    # Adding to an existing profile has to use the recognizer its views came from.
+    recognizer = current.recognizer if args.add and len(current) else config.DEFAULT_RECOGNIZER
+    if args.add and len(current) and current.recognizer != config.DEFAULT_RECOGNIZER:
+        print(f"adding to a {current.recognizer} enrollment - re-run without --add to upgrade")
+    print(f"enrolling profile {args.profile!r} - {args.samples} samples ({recognizer})")
+    samples = enroll.capture(cfg, args.samples, _status_line, recognizer=recognizer)
+    print()
+    # Other profiles survive a re-enroll unless they came from a different recognizer.
+    base = current if current.recognizer == recognizer else identity.Enrollment({}, recognizer)
+    updated = base.with_profile(args.profile, samples, append=args.add)
     path = updated.save()
     print(f"saved {len(updated)} samples across {len(updated.profiles)} profile(s) -> {path}")
     for name, count in updated.profiles.items():
         print(f"  {name}: {count}")
     print(enroll.quality_note(updated, cfg.threshold))
+    _recalibrate(cfg, updated)
+    return 0
+
+
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    cfg = _resolved_config(args)
+    enrollment = identity.require()
+    calibration = identity.calibrate(enrollment)
+    print(f"{enrollment.recognizer} enrollment, {len(enrollment)} views")
+    print(f"strangers   : max {calibration.stranger_max:.3f}, p99 {calibration.stranger_p99:.3f} "
+          f"({calibration.bank_size} in the bank)")
+    print(f"you         : p05 {calibration.own_p05:.3f} (leave-one-out)")
+    print(f"threshold   : {calibration.threshold:.3f} (current {cfg.threshold:.3f})")
+    if args.write:
+        config.write(config.with_overrides(cfg, threshold=calibration.threshold))
+        print(f"wrote {config.CONFIG_FILE}")
     return 0
 
 
@@ -60,9 +91,10 @@ def cmd_forget(args: argparse.Namespace) -> int:
 def cmd_test(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
     enrollment = identity.require()
-    engine = vision.FaceEngine(cfg)
+    engine = vision.FaceEngine(cfg, enrollment.recognizer)
     scores: list[float] = []
-    print(f"live scores against {len(enrollment)} samples, threshold {cfg.threshold:.3f}")
+    print(f"live scores against {len(enrollment)} {enrollment.recognizer} samples, "
+          f"threshold {cfg.threshold:.3f}")
     print("ctrl-c to stop and see a threshold suggestion")
     deadline = time.monotonic() + args.seconds if args.seconds else float("inf")
     try:
@@ -185,8 +217,15 @@ def cmd_status(_: argparse.Namespace) -> int:
     print(f"screen      : {'locked' if macos.screen_locked() else 'unlocked'}")
     if len(enrollment):
         profiles = ", ".join(f"{n}({c})" for n, c in enrollment.profiles.items())
-        print(f"enrolled    : {len(enrollment)} samples - {profiles}")
+        print(f"enrolled    : {len(enrollment)} {enrollment.recognizer} samples - {profiles}")
         print(f"              {enroll.quality_note(enrollment, cfg.threshold)}")
+        if enrollment.recognizer != config.DEFAULT_RECOGNIZER:
+            print(f"              legacy recognizer - `facelock enroll` again to upgrade to "
+                  f"{config.DEFAULT_RECOGNIZER}")
+        try:
+            print(f"              {identity.calibrate(enrollment).note()}")
+        except (OSError, ValueError):
+            pass
     else:
         print("enrolled    : nothing yet - run: facelock enroll")
     rechecks = ", ".join(f"{watcher.recheck_delay(cfg, miss):.0f}s"
@@ -195,6 +234,7 @@ def cmd_status(_: argparse.Namespace) -> int:
           f"locks ~{config.grace_seconds(cfg):.0f}s after you leave, at worst")
     print(f"              threshold {cfg.threshold}, lock {cfg.lock_method}, "
           f"{config.preset_of(cfg) or 'custom'} cadence")
+    print(f"              {'stays awake' if cfg.stay_awake else 'may sleep'} while locked")
     recent = control.tail_log(5)
     if recent:
         print("recent      :")
@@ -271,6 +311,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("forget", help="delete an enrolled profile")
     p.add_argument("profile")
     p.set_defaults(func=cmd_forget)
+
+    p = sub.add_parser("calibrate", help="pick a threshold from the enrollment and impostor bank")
+    p.add_argument("--write", action="store_true", help="save it to config.toml")
+    p.set_defaults(func=cmd_calibrate)
 
     p = sub.add_parser("test", help="print live match scores and suggest a threshold")
     p.add_argument("--seconds", type=float, default=0.0, help="stop after N seconds")

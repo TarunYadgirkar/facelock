@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from . import config, macos, vision
-from .identity import NO_MATCH, Enrollment, Match
+from .identity import NO_MATCH, Enrollment, Live, Match
 
 # Keeping the camera powered between checks only pays off when the next one is close.
 KEEP_CAMERA_OPEN_UNDER = 5.0
@@ -103,7 +103,7 @@ def _alert(cfg: config.Config, decision: Decision, log: logging.Logger) -> None:
     log.info("%s (state %s)", decision.event.value, decision.state.value)
 
 
-def look(camera: vision.Camera, engine: vision.FaceEngine, enrollment: Enrollment,
+def look(camera: vision.Camera, engine: vision.FaceEngine, enrollment: Enrollment | Live,
          frames: int) -> Reading | None:
     """One check: a short burst of frames, scored as its best match. None if the camera failed."""
     best = NO_MATCH
@@ -133,20 +133,30 @@ def _sleep(seconds: float, should_stop: Callable[[], bool]) -> None:
         time.sleep(min(0.5, remaining))
 
 
+def _engine_for(cfg: config.Config, enrollment: Enrollment | Live,
+                current: vision.FaceEngine | None) -> vision.FaceEngine:
+    """The recognizer must be the one the enrolled views came from; Start Over can change it."""
+    if current is not None and current.recognizer == enrollment.recognizer:
+        return current
+    return vision.FaceEngine(cfg, enrollment.recognizer)
+
+
 def run(
     cfg: config.Config,
-    enrollment: Enrollment,
+    enrollment: Enrollment | Live,
     observer: Observer,
     dry_run: bool = False,
     paused: Callable[[], bool] = lambda: False,
     should_stop: Callable[[], bool] = lambda: False,
 ) -> None:
     """Watch until stopped. Holds the camera only for as long as a check needs it."""
-    engine = vision.FaceEngine(cfg)
+    engine = _engine_for(cfg, enrollment, None)
     camera = vision.Camera(cfg)
     tracker = PresenceTracker(cfg)
+    awake = macos.StayAwake()
     log = logging.getLogger(config.APP)
     read_failures = 0
+    locked_by_us = False
 
     try:
         while not should_stop():
@@ -156,6 +166,11 @@ def run(
                 _sleep(1.0, should_stop)
                 continue
 
+            if locked_by_us:  # the screen has been unlocked since
+                locked_by_us = False
+                awake.stop()
+
+            engine = _engine_for(cfg, enrollment, engine)
             if not camera.is_open:
                 camera.open()
                 vision.warmup(camera)
@@ -182,6 +197,9 @@ def run(
             if decision.event is Event.LOCK and not dry_run:
                 macos.lock(cfg.lock_method)
                 camera.release()
+                if cfg.stay_awake:
+                    locked_by_us = True
+                    awake.start()
                 time.sleep(LOCK_SETTLE)
                 continue
 
@@ -191,3 +209,4 @@ def run(
             _sleep(delay, should_stop)
     finally:
         camera.release()
+        awake.stop()

@@ -25,14 +25,31 @@ PAUSE_FILE = STATE_DIR / "pause"
 PID_FILE = STATE_DIR / "watcher.pid"
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-MODEL_SOURCE = "https://github.com/opencv/opencv_zoo/raw/main/models"
-# filename -> directory in the opencv_zoo repo
+OPENCV_ZOO = "https://github.com/opencv/opencv_zoo/raw/main/models"
+INSIGHTFACE_RELEASE = "https://github.com/deepinsight/insightface/releases/download/v0.7"
+# filename -> (download url, member inside the archive when the url is a zip)
 MODELS = {
-    "face_detection_yunet_2023mar.onnx": "face_detection_yunet",
-    "face_recognition_sface_2021dec.onnx": "face_recognition_sface",
+    "face_detection_yunet_2023mar.onnx":
+        (f"{OPENCV_ZOO}/face_detection_yunet/face_detection_yunet_2023mar.onnx", None),
+    "face_recognition_sface_2021dec.onnx":
+        (f"{OPENCV_ZOO}/face_recognition_sface/face_recognition_sface_2021dec.onnx", None),
+    "w600k_mbf.onnx": (f"{INSIGHTFACE_RELEASE}/buffalo_sc.zip", "w600k_mbf.onnx"),
 }
 DETECTOR_MODEL = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
-RECOGNIZER_MODEL = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
+IMPOSTOR_BANK = MODELS_DIR / "impostor_bank.npz"
+
+# Recognizers: name -> (model file, embedding size, default threshold).
+# "arcface" is InsightFace's MobileFaceNet trained on WebFace600K; "sface" is kept so an
+# enrollment made before 0.4 keeps working until it is redone.
+RECOGNIZERS = {
+    "arcface": (MODELS_DIR / "w600k_mbf.onnx", 512, 0.42),
+    "sface": (MODELS_DIR / "face_recognition_sface_2021dec.onnx", 128, 0.363),
+}
+DEFAULT_RECOGNIZER = "arcface"
+
+
+def default_threshold(recognizer: str = DEFAULT_RECOGNIZER) -> float:
+    return RECOGNIZERS[recognizer][2]
 
 
 @dataclass(frozen=True)
@@ -43,7 +60,9 @@ class Config:
     detect_width: int = 320  # detection runs downscaled; alignment stays full res
     detect_score: float = 0.85
 
-    threshold: float = 0.363  # SFace reference operating point
+    # Cosine score (mean of the 3 closest enrolled views) needed to count as me. The default
+    # is the ArcFace operating point; enrolling recalibrates it against the impostor bank.
+    threshold: float = 0.42
 
     # Timing. A "check" is one look at the camera; the loop is a cadence, not a stopwatch.
     # Defaults tolerate ~a minute of looking down at a phone before anything locks.
@@ -55,6 +74,7 @@ class Config:
     frames_per_check: int = 3  # frames per check; the best match of the burst wins
 
     lock_method: str = "suspend"  # suspend | sleep
+    stay_awake: bool = True  # after facelock locks, hold off system sleep until unlocked
     sound: bool = True
     notify: bool = True
 

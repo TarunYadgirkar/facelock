@@ -1,6 +1,8 @@
 import numpy as np
 
-from facelock.identity import EMBEDDING_DIM, Enrollment
+from facelock.identity import Enrollment, embedding_dim
+
+EMBEDDING_DIM = embedding_dim("arcface")
 from facelock.watcher import look
 
 

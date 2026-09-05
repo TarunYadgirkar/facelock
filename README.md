@@ -9,16 +9,30 @@ worst. Missing once is cheap; missing twice means you are gone, so it stops wait
 A face that is in frame but *isn't yours* gets its own fast cadence.
 Locking shows the lock screen only — everything keeps running behind it.
 
-Face detection is OpenCV **YuNet**, identity is the **SFace** embedding compared by cosine
-similarity against locally enrolled samples. Everything runs offline on the CPU, no frame is ever
-written to disk, and between checks the camera is fully released — green light off.
+Face detection is OpenCV **YuNet**; identity is an **ArcFace** embedding (InsightFace's
+MobileFaceNet, `w600k_mbf`, run through OpenCV's dnn) scored as the mean cosine similarity to the
+three closest locally enrolled views. Everything runs offline on the CPU, no frame is ever written
+to disk, and between checks the camera is fully released — green light off.
+
+### Why ArcFace, and why not the single best view
+
+Version 0.3 used SFace and accepted a face if it beat any one of ~70 enrolled views at the model's
+reference threshold of 0.363. Simulated on LFW (enroll 70 photos of one person, treat the other
+13,000 faces as strangers) that lets a stranger through on **2.4 % of frames**, and on a webcam
+strangers score higher still. ArcFace separates roughly twice as well, averaging the closest three
+views stops a single lucky template from carrying a stranger, and the threshold is now
+**calibrated per enrollment**: `models/impostor_bank.npz` holds embeddings of 4,000 different
+people, and after every enrollment the threshold is set a margin above the strongest of them.
+
+![score distributions](assets/generated/scores_sface_vs_arcface.png)
+![error rates](assets/generated/error_rates_vs_threshold.png)
 
 ## Setup
 
 ```sh
 ./setup.sh                         # venv + install + tests
-.venv/bin/facelock enroll          # capture 25 samples (models auto-download on first use)
-.venv/bin/facelock test            # live scores + a suggested threshold
+.venv/bin/facelock enroll          # capture 25 samples, then calibrate (models auto-download)
+.venv/bin/facelock test            # live scores
 .venv/bin/facelock install-app     # FaceLock.app in ~/Applications
 ```
 
@@ -39,7 +53,8 @@ the terminal commands below are the same features for anyone who prefers them.
   during the countdown, and it captures ~15 more views and appends them. The running watcher
   picks up the new samples immediately — no restart. **Start Over** redoes the full enrollment.
 - **Settings ▸** cadence preset (each line states how long you can be gone before it locks),
-  whether locking also turns the display off, the warning sound and banner, and **Start at Login**.
+  whether locking also turns the display off, **Stay awake while locked**, the warning sound and
+  banner, and **Start at Login**.
   Changes are written to `config.toml` and restart the watcher in place.
 
 **Relaunching after Quit**: Spotlight (⌘-space) → *FaceLock*, or open `~/Applications/FaceLock.app`.
@@ -49,9 +64,10 @@ Tick **Start at Login** and it comes back by itself after a reboot.
 
 | Command | What it does |
 |---|---|
-| `enroll [--profile NAME] [--add]` | capture reference samples; separate profiles for glasses, evening light, etc. |
+| `enroll [--profile NAME] [--add]` | capture reference samples and calibrate the threshold; separate profiles for glasses, evening light, etc. |
+| `calibrate [--write]` | score the impostor bank against the enrollment and pick the threshold |
 | `forget NAME` | drop a profile |
-| `test [--seconds N]` | live match scores, then percentile stats and a threshold suggestion |
+| `test [--seconds N]` | live match scores and percentile stats |
 | `watch [--dry-run] [-v]` | the watcher, in a terminal |
 | `menubar` | the watcher with the menu bar UI (what the app runs) |
 | `install-app` / `uninstall-app` | put FaceLock.app in `~/Applications` / remove it and the login agent |
@@ -75,6 +91,13 @@ Tick **Start at Login** and it comes back by itself after a reboot.
   backoff on reopening rather than a lock loop.
 - Locking calls `SACLockScreenImmediate` (the real lock screen); set
   `lock_method = "sleep"` for `pmset displaysleepnow` instead.
+- **Locked, not asleep** — `pmset` here sleeps the Mac a minute after the display darkens, which
+  kills anything running behind the lock screen. After facelock locks, it holds
+  `caffeinate -i -w <pid>` until you unlock: idle sleep is held off on battery and power alike,
+  the display still darkens, and the assertion cannot outlive the watcher. Manual locks and lid
+  closes are untouched. `stay_awake = false` (or the Settings toggle) turns it off.
+- **Upgrading from 0.3** — an SFace enrollment keeps working with the old model until you
+  **Start Over** (or `facelock enroll`), which re-enrolls with ArcFace and calibrates.
 
 ## Cost
 
@@ -94,7 +117,8 @@ resident (OpenCV + the two models).
 | `stranger_interval` | `5.0` | recheck spacing when an unknown face is in frame |
 | `confirm_checks` | `3` | consecutive missed checks before locking |
 | `frames_per_check` | `3` | frames per burst; the best match wins |
-| `threshold` | `0.363` | cosine similarity required to count as you |
+| `threshold` | `0.42` | score required to count as you; enrolling recalibrates it |
+| `stay_awake` | `true` | hold off idle system sleep from a facelock lock until unlock |
 | `detect_width` | `320` | detection downscale; raise it if faces are missed at a distance |
 | `lock_method` | `"suspend"` | `suspend` or `sleep` |
 | `sound` / `notify` | `true` | warning cue and banner |
