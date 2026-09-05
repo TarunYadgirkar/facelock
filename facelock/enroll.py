@@ -67,10 +67,12 @@ def capture(
 
 
 def quality_note(enrollment: Enrollment, threshold: float) -> str:
-    worst, mean = enrollment.separation()
-    if worst < threshold:
-        return (
-            f"self-similarity min {worst:.3f} is below the {threshold:.3f} threshold - "
-            "some captures disagree with each other, expect occasional false locks"
-        )
-    return f"self-similarity min {worst:.3f}, mean {mean:.3f} - healthy"
+    """How my own views fare against each other, scored the way a live frame is."""
+    own = enrollment.leave_one_out()
+    if len(own) == 0:
+        return "too few views to judge"
+    weakest, typical = float(own.min()), float(np.median(own))
+    if weakest < threshold:
+        return (f"weakest view scores {weakest:.3f} against the rest, below the {threshold:.3f} "
+                "threshold - it does not look like you and will be pruned on the next lesson")
+    return f"your views score {weakest:.3f}-{typical:.3f} against each other - healthy"

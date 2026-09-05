@@ -103,6 +103,22 @@ class Enrollment:
         off = sims[~np.eye(len(self._matrix), dtype=bool)]
         return float(off.min()), float(off.mean())
 
+    def without_outliers(self, min_score: float) -> Enrollment:
+        """Drop views that do not resemble the rest of me - a blurred turn, a half face out of
+        frame. Such a view matches nobody in particular, so it can only ever help a stranger."""
+        if len(self._matrix) < TOP_K + 1:
+            return self
+        keep = self.leave_one_out() >= min_score
+        if keep.all():
+            return self
+        kept, offset = {}, 0
+        for name, samples in self._profiles.items():
+            mask = keep[offset:offset + len(samples)]
+            offset += len(samples)
+            if mask.any():
+                kept[name] = samples[mask]
+        return Enrollment(kept, self.recognizer)
+
     def leave_one_out(self) -> np.ndarray:
         """Each enrolled view scored against the others - how my own frames would fare."""
         n = len(self._matrix)

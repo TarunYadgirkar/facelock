@@ -54,6 +54,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     # Other profiles survive a re-enroll unless they came from a different recognizer.
     base = current if current.recognizer == recognizer else identity.Enrollment({}, recognizer)
     updated = base.with_profile(args.profile, samples, append=args.add)
+    updated = updated.without_outliers(identity.calibrate(updated).threshold)
     path = updated.save()
     print(f"saved {len(updated)} samples across {len(updated.profiles)} profile(s) -> {path}")
     for name, count in updated.profiles.items():

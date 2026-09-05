@@ -244,10 +244,10 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 self._enrollment_stamp = current
                 enrollment = identity.load()
                 known = sum(enrollment.profiles.values())
-                worst, mean = enrollment.separation()
+                own = enrollment.leave_one_out()
+                weakest = f"{own.min():.2f}" if len(own) else "-"
                 self.enrollment_item.title = (
-                    f"knows {known} views ({enrollment.recognizer}) - "
-                    f"they agree {mean:.2f}, worst pair {worst:.2f}"
+                    f"knows {known} views ({enrollment.recognizer}) - weakest scores {weakest}"
                 )
                 legacy = enrollment.recognizer != config.DEFAULT_RECOGNIZER
                 self.upgrade_item.hidden = not legacy
@@ -348,8 +348,9 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 )
                 base = current if not replace_all else identity.Enrollment({}, recognizer)
                 updated = base.with_profile("me", captured, append=not replace_all)
-                updated.save()
                 calibration = identity.calibrate(updated)
+                updated = updated.without_outliers(calibration.threshold)
+                updated.save()
                 self.cfg = config.with_overrides(self.cfg, threshold=calibration.threshold)
                 config.write(self.cfg)
                 self.learning = (f"learned {len(captured)} views - "

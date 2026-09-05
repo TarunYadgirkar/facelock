@@ -93,3 +93,12 @@ def test_stay_awake_round_trips_through_config(tmp_path):
     path = tmp_path / "config.toml"
     config.write(config.Config(stay_awake=False), path)
     assert config.load(path).stay_awake is False
+
+
+def test_outlier_views_are_pruned_and_good_ones_kept():
+    junk = unit(500)
+    enrollment = identity.Enrollment({"me": np.vstack([VIEWS, junk[None]])})
+    pruned = enrollment.without_outliers(0.42)
+    assert pruned.profiles == {"me": len(VIEWS)}
+    assert enrollment.profiles == {"me": len(VIEWS) + 1}  # original untouched
+    assert pruned.without_outliers(0.42) is pruned
