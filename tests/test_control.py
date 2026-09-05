@@ -60,3 +60,11 @@ def test_stale_pid_file_is_discarded(tmp_path):
     path.write_text("999999")
     assert control.running_pid(path) is None
     assert not path.exists()
+
+
+def test_lesson_requests_are_taken_once(tmp_path):
+    path = tmp_path / "lesson"
+    assert control.take_lesson_request(path) is None
+    control.request_lesson(control.START_OVER, path)
+    assert control.take_lesson_request(path) == control.START_OVER
+    assert control.take_lesson_request(path) is None

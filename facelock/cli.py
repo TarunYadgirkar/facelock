@@ -63,6 +63,18 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_teach(args: argparse.Namespace) -> int:
+    """Have the running menu bar app capture - it holds the camera permission, a terminal may not."""
+    if control.running_pid() is None:
+        print("the menu bar app is not running - open FaceLock first")
+        return 1
+    control.request_lesson(args.lesson)
+    what = "full enrollment (Start Over)" if args.lesson == control.START_OVER else args.lesson
+    print(f"asked the menu bar app to run: {what}")
+    print("watch the first line of its menu for the pose prompts")
+    return 0
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
     enrollment = identity.require()
@@ -311,6 +323,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("forget", help="delete an enrolled profile")
     p.add_argument("profile")
     p.set_defaults(func=cmd_forget)
+
+    p = sub.add_parser("teach", help="ask the running menu bar app to run a lesson")
+    p.add_argument("lesson", nargs="?", default=control.START_OVER,
+                   help="'start-over' or the tail of a Training menu label, e.g. 'phone'")
+    p.set_defaults(func=cmd_teach)
 
     p = sub.add_parser("calibrate", help="pick a threshold from the enrollment and impostor bank")
     p.add_argument("--write", action="store_true", help="save it to config.toml")

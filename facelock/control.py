@@ -65,6 +65,25 @@ def is_paused(path: Path = config.PAUSE_FILE) -> bool:
     return pause_expiry(path) is not None
 
 
+START_OVER = "start-over"
+
+
+def request_lesson(name: str, path: Path = config.LESSON_FILE) -> None:
+    """Ask the running menu bar app to teach `name` (a lesson label, or START_OVER)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(name)
+
+
+def take_lesson_request(path: Path = config.LESSON_FILE) -> str | None:
+    """The app polls this: returns and clears a pending request, else None."""
+    try:
+        name = path.read_text().strip()
+    except FileNotFoundError:
+        return None
+    path.unlink(missing_ok=True)
+    return name or None
+
+
 def write_pid(path: Path = config.PID_FILE) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(str(os.getpid()))

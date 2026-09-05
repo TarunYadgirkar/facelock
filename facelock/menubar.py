@@ -236,6 +236,9 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             if paused != self._was_paused:  # Resume is grayed while watching
                 self.resume_item.set_callback(self.resume if paused else None)
                 self._was_paused = paused
+            requested = control.take_lesson_request()
+            if requested is not None:
+                self._run_requested(requested)
             current = identity.stamp()  # cheap stat; the npz is only read when it changes
             if current != self._enrollment_stamp:
                 self._enrollment_stamp = current
@@ -250,6 +253,18 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 self.upgrade_item.hidden = not legacy
             if self.threshold_item.title != (want := self._threshold_label()):
                 self.threshold_item.title = want
+
+        def _run_requested(self, name: str) -> None:
+            """`facelock teach` from a terminal lands here - the app owns the camera grant."""
+            if name == control.START_OVER:
+                self.re_enroll(None)
+                return
+            for label, hint in LESSONS:
+                if label.lower().endswith(name.lower()):
+                    self._teach(hint, samples=LEARN_SAMPLES, poses=enroll.LEARN_POSES)
+                    return
+            self.learning = f"no lesson called {name!r}"
+            threading.Timer(3.0, lambda: setattr(self, "learning", "")).start()
 
         def _threshold_label(self) -> str:
             return f"counts as you at match {self.cfg.threshold:.2f} or better"

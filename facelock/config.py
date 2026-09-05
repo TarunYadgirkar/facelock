@@ -23,6 +23,7 @@ ENROLLMENT_FILE = DATA_DIR / "enrollment.npz"
 LOG_FILE = STATE_DIR / "facelock.log"
 PAUSE_FILE = STATE_DIR / "pause"
 PID_FILE = STATE_DIR / "watcher.pid"
+LESSON_FILE = STATE_DIR / "lesson"  # a lesson the menu bar app is asked to run
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 OPENCV_ZOO = "https://github.com/opencv/opencv_zoo/raw/main/models"
