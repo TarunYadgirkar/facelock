@@ -25,6 +25,10 @@ ARCFACE_SCALE = 1 / 127.5
 ARCFACE_MEAN = (127.5, 127.5, 127.5)
 
 
+class CameraError(RuntimeError):
+    pass
+
+
 def _fetch(url: str) -> bytes:
     with urllib.request.urlopen(url) as response:
         return response.read()
@@ -145,7 +149,7 @@ class Camera:
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self._cfg.frame_height)
         if not capture.isOpened():
             capture.release()
-            raise SystemExit(f"cannot open camera {self._cfg.camera}\n{CAMERA_HELP}")
+            raise CameraError(f"cannot open camera {self._cfg.camera}: {CAMERA_HELP}")
         self._capture = capture
 
     def read(self) -> np.ndarray | None:
@@ -175,6 +179,12 @@ def warmup(camera: Camera, seconds: float = 0.6) -> None:
 
 
 def silence_opencv_logs() -> None:
-    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    if hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(getattr(cv2, "LOG_LEVEL_ERROR", 2))
+        if not sys.stdout.isatty():
+            cv2.setLogLevel(getattr(cv2, "LOG_LEVEL_SILENT", 0))
+        return
+    logging = cv2.utils.logging
+    logging.setLogLevel(logging.LOG_LEVEL_ERROR)
     if not sys.stdout.isatty():
-        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_SILENT)
+        logging.setLogLevel(logging.LOG_LEVEL_SILENT)

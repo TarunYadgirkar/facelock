@@ -38,13 +38,26 @@ MINE = unit(1)
 EMPTY = np.empty((0, EMBEDDING_DIM), dtype=np.float32)
 
 
-def test_best_frame_of_the_burst_wins():
+def test_two_supporting_frames_tolerate_one_bad_frame():
     """One bad frame in three - a blink, a turn - must not read as absence."""
     engine = FakeEngine({0: (0, EMPTY), 1: (1, MINE)})
-    reading = look(FakeCamera([frame(0), frame(1), frame(0)]), engine,
+    reading = look(FakeCamera([frame(1), frame(0), frame(1)]), engine,
                    Enrollment({"me": MINE}), frames=3)
     assert reading.match.score > 0.99
     assert reading.face_count == 1
+
+
+def test_one_lucky_face_in_a_burst_is_rejected():
+    engine = FakeEngine({0: (0, EMPTY), 1: (1, MINE)})
+    reading = look(FakeCamera([frame(0), frame(1), frame(0)]), engine,
+                   Enrollment({"me": MINE}), frames=3)
+    assert not reading.match.accepted(0.363)
+
+
+def test_one_frame_check_uses_its_only_match():
+    engine = FakeEngine({1: (1, MINE)})
+    reading = look(FakeCamera([frame(1)]), engine, Enrollment({"me": MINE}), frames=1)
+    assert reading.match.accepted(0.363)
 
 
 def test_a_dead_camera_reads_as_no_reading():

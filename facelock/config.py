@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import math
+import tempfile
 import tomllib
 from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
@@ -80,6 +82,21 @@ class Config:
     notify: bool = True
 
     def validate(self) -> Config:
+        for field in fields(self):
+            value = getattr(self, field.name)
+            expected = type(field.default)
+            if expected is float:
+                if type(value) not in (int, float) or not math.isfinite(value):
+                    raise ValueError(f"{field.name} must be a finite number")
+            elif type(value) is not expected:
+                raise ValueError(f"{field.name} must be {expected.__name__}")
+        if self.camera < 0:
+            raise ValueError("camera must be nonnegative")
+        for name in ("frame_width", "frame_height", "detect_width"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if not 0 < self.detect_score <= 1:
+            raise ValueError("detect_score must be above 0 and at most 1")
         if not 0.0 < self.threshold < 1.0:
             raise ValueError("threshold must be between 0 and 1")
         for name in ("interval", "recheck_interval", "stranger_interval"):
@@ -151,7 +168,18 @@ def write(config: Config, path: Path = CONFIG_FILE) -> Path:
     for key, value in asdict(config.validate()).items():
         rendered = str(value).lower() if isinstance(value, bool) else repr(value)
         lines.append(f"{key} = {rendered}")
-    path.write_text("\n".join(lines) + "\n")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=".config-", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write("\n".join(lines) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return path
 
 

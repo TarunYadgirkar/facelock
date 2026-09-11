@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import logging
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,6 +22,7 @@ PAUSED_ICON = str(_ICONS / "pause-bold.svg")
 LEARNING_ICON = str(_ICONS / "student-bold.svg")
 
 REFRESH_SECONDS = 0.5
+RETRY_SECONDS = 5.0
 LEARN_COUNTDOWN = 4.0  # seconds to get into the pose after clicking
 LEARN_SAMPLES = 15
 LEARN_WINDOW = 15.0  # give up if the pose never produces a clean face
@@ -33,6 +35,8 @@ LESSONS = (
     ("Teach: turned to one side", "turn your head to one side"),
     ("Teach: with AirPods in", "put your AirPods in and look at the screen"),
     ("Teach: without AirPods", "take your AirPods out and look at the screen"),
+    ("Teach: evening light", "look at your screen in your usual evening light"),
+    ("Teach: daylight", "look at your screen in daylight"),
     ("Teach: whatever I am doing now", "hold still"),
 )
 
@@ -48,8 +52,8 @@ class _Shared:
     """Watcher thread writes, menu bar thread reads. One assignment, no locking needed."""
 
     def __init__(self) -> None:
-        self.icon = ICON[State.PRESENT]
-        self.detail = "watching"
+        self.icon = ICON[State.STRANGER]
+        self.detail = "starting recognition"
 
     def update(self, decision: Decision, reading: Reading) -> None:
         self.icon = ICON[decision.state]
@@ -62,6 +66,10 @@ class _Shared:
             left = decision.needed - decision.misses
             self.detail = f"not seen - {left} checks from locking ({score})"
 
+    def status(self, detail: str) -> None:
+        self.icon = ICON[State.STRANGER]
+        self.detail = detail
+
 
 class _Watcher:
     """Owns the watcher thread so a settings change can restart it with the new config."""
@@ -71,32 +79,62 @@ class _Watcher:
         self._dry_run = dry_run
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._mutex = threading.RLock()
+        self._revision = 0
+        self._cfg = config.Config()
 
     def start(self, cfg: config.Config) -> None:
-        self.stop()
-        self._stop = threading.Event()
-        self._thread = threading.Thread(
-            target=run,
-            args=(cfg, identity.Live(), self._shared.update),
-            kwargs={
-                "dry_run": self._dry_run,
-                "paused": control.is_paused,
-                "should_stop": self._stop.is_set,
-            },
-            daemon=True,
-        )
-        self._thread.start()
+        with self._mutex:
+            if not self.stop():
+                raise RuntimeError("camera is still closing; retry shortly")
+            self._cfg = cfg
+            self._stop = threading.Event()
+            self._thread = threading.Thread(target=self._supervise, daemon=True)
+            self._thread.start()
 
-    def stop(self, timeout: float = 10.0) -> None:
+    def _supervise(self) -> None:
+        while not self._stop.is_set():
+            revision = self._revision
+            cfg = self._cfg
+            try:
+                run(cfg, identity.Live(), self._shared.update, dry_run=self._dry_run,
+                    paused=control.is_paused,
+                    should_stop=lambda: self._stop.is_set() or revision != self._revision,
+                    on_status=self._shared.status)
+            except (Exception, SystemExit) as error:
+                logging.getLogger(config.APP).exception("watcher failed; retrying")
+                self._shared.status(f"not protecting - {error}; retrying")
+                self._stop.wait(RETRY_SECONDS)
+
+    def stop(self, timeout: float = 10.0) -> bool:
         """Returns once the watcher has let go of the camera."""
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
-            self._thread = None
+        with self._mutex:
+            self._revision += 1
+            self._stop.set()
+            if self._thread is not None:
+                self._thread.join(timeout=timeout)
+                if self._thread.is_alive():
+                    self._shared.status("camera is still closing")
+                    return False
+                self._thread = None
+            return True
 
     def restart(self, cfg: config.Config) -> None:
         """Off the main thread: stopping waits for a check to finish, which would freeze the menu."""
-        threading.Thread(target=self.start, args=(cfg,), daemon=True).start()
+        with self._mutex:
+            self._cfg = cfg
+            self._revision += 1
+            if self._thread is None or not self._thread.is_alive():
+                self.start(cfg)
+            elif self._stop.is_set():
+                threading.Thread(target=self._restart_after_stop,
+                                 args=(self._thread, self._revision), daemon=True).start()
+
+    def _restart_after_stop(self, previous: threading.Thread, revision: int) -> None:
+        previous.join()
+        with self._mutex:
+            if self._thread is previous and self._revision == revision:
+                self.start(self._cfg)
 
 
 def main(cfg: config.Config, dry_run: bool = False) -> int:
@@ -114,7 +152,6 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
         print(f"facelock is already running (pid {running})")
         return 0
 
-    identity.require()
     config.ensure_dirs()
     vision.silence_opencv_logs()
     control.setup_logging()
@@ -127,6 +164,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             super().__init__("FaceLock", icon=shared.icon, template=True, quit_button=None)
             self.cfg = cfg
             self.learning = ""  # non-empty while a lesson is capturing
+            self._quitting = threading.Event()
             self._named = False  # rumps builds the status item in run(), not here
             self.status_item = rumps.MenuItem("starting")
             self.resume_item = rumps.MenuItem("Resume")
@@ -205,8 +243,15 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
 
         def _apply(self, **changes) -> None:
             """Persist a settings change and hand the watcher the new config."""
-            self.cfg = config.with_overrides(self.cfg, **changes)
-            config.write(self.cfg)
+            if self.learning:
+                return
+            updated = config.with_overrides(self.cfg, **changes)
+            try:
+                config.write(updated)
+            except OSError as error:
+                shared.status(f"could not save settings: {error}")
+                return
+            self.cfg = updated
             self._sync_settings()
             watcher.restart(self.cfg)
 
@@ -242,7 +287,12 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             current = identity.stamp()  # cheap stat; the npz is only read when it changes
             if current != self._enrollment_stamp:
                 self._enrollment_stamp = current
-                enrollment = identity.load()
+                try:
+                    enrollment = identity.load()
+                except (OSError, ValueError) as error:
+                    self.enrollment_item.title = "Enrollment unreadable - use Start Over"
+                    shared.status(f"enrollment error: {error}")
+                    return
                 known = sum(enrollment.profiles.values())
                 own = enrollment.leave_one_out()
                 weakest = f"{own.min():.2f}" if len(own) else "-"
@@ -267,12 +317,21 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             threading.Timer(3.0, lambda: setattr(self, "learning", "")).start()
 
         def _threshold_label(self) -> str:
-            return f"counts as you at match {self.cfg.threshold:.2f} or better"
+            try:
+                enrollment = identity.load()
+                threshold = max(self.cfg.threshold, enrollment.threshold or
+                                config.default_threshold(enrollment.recognizer))
+            except (OSError, ValueError):
+                return "Enrollment unavailable - use Start Over"
+            return f"counts as you at match {threshold:.2f} or better"
 
         # --- actions -------------------------------------------------------
 
         def lock_now(self, _) -> None:
-            macos.lock(self.cfg.lock_method)
+            try:
+                macos.lock(self.cfg.lock_method)
+            except (OSError, RuntimeError) as error:
+                shared.status(f"could not lock: {error}")
 
         def pause_15(self, _) -> None:
             control.pause(15 * 60)
@@ -324,19 +383,21 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                    replace_all: bool = False) -> None:
             if self.learning:
                 return
+            self.learning = "getting ready"
             threading.Thread(target=self._teach_worker,
                              args=(hint, samples, poses, replace_all), daemon=True).start()
 
         def _teach_worker(self, hint: str, samples: int, poses: tuple[str, ...],
                           replace_all: bool) -> None:
             """Hold the camera alone: stop the watcher, capture, then start it again."""
-            self.learning = "getting ready"
             try:
-                watcher.stop()
+                if not watcher.stop():
+                    raise RuntimeError("camera is still closing; retry the lesson")
                 for left in range(int(LEARN_COUNTDOWN), 0, -1):
                     self.learning = f"{hint} - starting in {left}"
-                    time.sleep(1.0)
-                current = identity.load()
+                    if self._quitting.wait(1.0):
+                        return
+                current = identity.Enrollment({}) if replace_all else identity.load()
                 # A lesson extends the views it already has, so it must use their recognizer;
                 # Start Over is where the current model comes in.
                 recognizer = (config.DEFAULT_RECOGNIZER if replace_all or not len(current)
@@ -344,12 +405,14 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 captured = enroll.capture(
                     self.cfg, samples, lambda text: setattr(self, "learning", text),
                     timeout=LEARN_WINDOW if poses is enroll.LEARN_POSES else 90.0,
-                    poses=poses, minimum=1, recognizer=recognizer,
+                    poses=poses, minimum=3 if not replace_all else enroll.MIN_USEFUL_SAMPLES,
+                    recognizer=recognizer, should_stop=self._quitting.is_set,
+                    reference=current if len(current) and not replace_all else None,
                 )
-                base = current if not replace_all else identity.Enrollment({}, recognizer)
-                updated = base.with_profile("me", captured, append=not replace_all)
-                calibration = identity.calibrate(updated)
-                updated = updated.without_outliers(calibration.threshold)
+                if self._quitting.is_set():
+                    return
+                updated, calibration = enroll.prepare(current, captured, replace_all=replace_all,
+                                                       threshold=self.cfg.threshold)
                 updated.save()
                 self.cfg = config.with_overrides(self.cfg, threshold=calibration.threshold)
                 config.write(self.cfg)
@@ -359,11 +422,16 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             except (SystemExit, Exception) as error:  # a failed lesson must not kill the app
                 self.learning = f"could not learn that: {error}"
             finally:
-                time.sleep(2.0)  # leave the outcome on screen before the watcher resumes
+                self._quitting.wait(2.0)
                 self.learning = ""
-                watcher.start(self.cfg)
+                if not self._quitting.is_set():
+                    try:
+                        watcher.restart(self.cfg)
+                    except RuntimeError as error:
+                        shared.status(str(error))
 
         def quit(self, _) -> None:
+            self._quitting.set()
             watcher.stop(timeout=2.0)  # a daemon thread; do not make quitting wait on a check
             rumps.quit_application()
 

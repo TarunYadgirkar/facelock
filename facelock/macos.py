@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import config
@@ -27,6 +28,8 @@ SLEEP_COMMAND = ["pmset", "displaysleepnow"]
 # -w ties the assertion to our pid, so even a SIGKILL cannot leave it behind.
 AWAKE_COMMAND = ["caffeinate", "-i", "-w"]
 WARN_SOUND = "/System/Library/Sounds/Tink.aiff"
+LOCK_VERIFY_ATTEMPTS = 10
+LOCK_VERIFY_INTERVAL = 0.1
 
 AGENT_LABEL = "com.tarunyadgirkar.facelock"
 AGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{AGENT_LABEL}.plist"
@@ -55,16 +58,20 @@ def screen_locked() -> bool:
 
 def lock(method: str = "suspend") -> None:
     """'suspend' shows the lock screen and nothing else stops; 'sleep' also darkens the display."""
-    if method == "suspend":
-        # The old CGSession -suspend binary is gone as of macOS 26.
-        try:
-            ctypes.CDLL(LOGIN_FRAMEWORK).SACLockScreenImmediate()
-            return
-        except (OSError, AttributeError):
-            pass  # fall through: display sleep locks too, given require-password-immediately
-    elif method != "sleep":
+    if method not in ("suspend", "sleep"):
         raise ValueError(f"unknown lock method {method!r}")
-    subprocess.run(SLEEP_COMMAND, check=False, capture_output=True)
+    try:
+        ctypes.CDLL(LOGIN_FRAMEWORK).SACLockScreenImmediate()
+    except (OSError, AttributeError):
+        pass
+    if method == "sleep":
+        subprocess.run(SLEEP_COMMAND, check=False, capture_output=True)
+    for attempt in range(LOCK_VERIFY_ATTEMPTS):
+        if screen_locked():
+            return
+        if attempt + 1 < LOCK_VERIFY_ATTEMPTS:
+            time.sleep(LOCK_VERIFY_INTERVAL)
+    raise RuntimeError("screen lock did not engage")
 
 
 class StayAwake:
@@ -111,8 +118,8 @@ def play(sound: str = WARN_SOUND) -> None:
 
 
 def banner(title: str, message: str) -> None:
-    script = f"display notification {shlex.quote(message)} with title {shlex.quote(title)}"
-    _spawn(["osascript", "-e", script])
+    script = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run"
+    _spawn(["osascript", "-e", script, "--", title, message])
 
 
 def warn(cfg: config.Config, message: str) -> None:

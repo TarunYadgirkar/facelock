@@ -14,6 +14,8 @@ from .identity import NO_MATCH, Enrollment, Live, Match
 # Keeping the camera powered between checks only pays off when the next one is close.
 KEEP_CAMERA_OPEN_UNDER = 5.0
 LOCK_SETTLE = 1.5
+FAILURE_RETRY_MAX = 5.0
+FAILURE_RETRY_BASE = 0.1
 MIN_RECHECK = 2.0  # however far the rechecks escalate, never spin the camera faster than this
 READ_FAILURES_BEFORE_MISS = 3  # camera errors tolerated before they count against presence
 READ_FAILURE_LOG_MARKS = (1, 10)  # log the first, the tenth, then every hundredth
@@ -63,9 +65,9 @@ class PresenceTracker:
         self._misses = 0
         self._was_present = True
 
-    def update(self, reading: Reading) -> Decision:
+    def update(self, reading: Reading, threshold: float | None = None) -> Decision:
         needed = self._cfg.confirm_checks
-        if reading.match.accepted(self._cfg.threshold):
+        if reading.match.accepted(self._cfg.threshold if threshold is None else threshold):
             returning = not self._was_present
             self.reset()
             return Decision(State.PRESENT, 0, needed, Event.RETURN if returning else None)
@@ -105,8 +107,8 @@ def _alert(cfg: config.Config, decision: Decision, log: logging.Logger) -> None:
 
 def look(camera: vision.Camera, engine: vision.FaceEngine, enrollment: Enrollment | Live,
          frames: int) -> Reading | None:
-    """One check: a short burst of frames, scored as its best match. None if the camera failed."""
-    best = NO_MATCH
+    """One check: a burst supported by two frames. None if the camera failed."""
+    matches = []
     faces = 0
     for _ in range(frames):
         frame = camera.read()
@@ -115,9 +117,10 @@ def look(camera: vision.Camera, engine: vision.FaceEngine, enrollment: Enrollmen
         count, embeddings = engine.faces_and_embeddings(frame)
         match = enrollment.best(embeddings)
         faces = max(faces, count)
-        if match.score > best.score:
-            best = match
-    return Reading(best, faces)
+        matches.append(match)
+    matches.sort(key=lambda candidate: candidate.score, reverse=True)
+    required = 1 if frames == 1 else 2
+    return Reading(matches[required - 1], faces)
 
 
 Observer = Callable[[Decision, Reading], None]
@@ -141,6 +144,11 @@ def _engine_for(cfg: config.Config, enrollment: Enrollment | Live,
     return vision.FaceEngine(cfg, enrollment.recognizer)
 
 
+def _failure_delay(failures: int) -> float:
+    exponent = min(failures, 6)
+    return min(FAILURE_RETRY_BASE * 2 ** exponent, FAILURE_RETRY_MAX)
+
+
 def run(
     cfg: config.Config,
     enrollment: Enrollment | Live,
@@ -148,6 +156,7 @@ def run(
     dry_run: bool = False,
     paused: Callable[[], bool] = lambda: False,
     should_stop: Callable[[], bool] = lambda: False,
+    on_status: Callable[[str], None] = lambda _message: None,
 ) -> None:
     """Watch until stopped. Holds the camera only for as long as a check needs it."""
     engine = _engine_for(cfg, enrollment, None)
@@ -160,7 +169,7 @@ def run(
 
     try:
         while not should_stop():
-            if macos.screen_locked() or paused():
+            if macos.screen_locked():
                 camera.release()
                 tracker.reset()
                 _sleep(1.0, should_stop)
@@ -170,43 +179,90 @@ def run(
                 locked_by_us = False
                 awake.stop()
 
-            engine = _engine_for(cfg, enrollment, engine)
-            if not camera.is_open:
-                camera.open()
-                vision.warmup(camera)
+            if paused():
+                camera.release()
+                tracker.reset()
+                _sleep(1.0, should_stop)
+                continue
 
-            reading = look(camera, engine, enrollment, cfg.frames_per_check)
+            engine = _engine_for(cfg, enrollment, engine)
+            try:
+                if not camera.is_open:
+                    camera.open()
+                    vision.warmup(camera)
+                reading = look(camera, engine, enrollment, cfg.frames_per_check)
+            except (vision.CameraError, vision.cv2.error) as exc:
+                reading = None
+                on_status(f"camera failed: {exc}")
             if reading is None:  # unreadable camera: back off, then count it as a miss
                 read_failures += 1
+                on_status(f"camera read failed ({read_failures} in a row)")
                 if read_failures in READ_FAILURE_LOG_MARKS or read_failures % 100 == 0:
                     log.warning("camera read failed (%d in a row) - no camera permission?",
                                 read_failures)
                 camera.release()
-                _sleep(min(2.0 ** read_failures * 0.1, 5.0), should_stop)
+                _sleep(_failure_delay(read_failures), lambda: should_stop() or paused())
+                if should_stop():
+                    return
+                if paused():
+                    tracker.reset()
+                    continue
                 if read_failures < READ_FAILURES_BEFORE_MISS:
                     continue
                 reading = Reading(NO_MATCH, 0)  # camera gone: fail toward locking, not open
             else:
+                if read_failures:
+                    on_status("camera recovered")
                 read_failures = 0
 
-            decision = tracker.update(reading)
+            if should_stop():
+                return
+            if paused():
+                camera.release()
+                tracker.reset()
+                continue
+
+            calibrated = enrollment.threshold
+            identity_threshold = (
+                calibrated
+                if calibrated is not None
+                else config.default_threshold(enrollment.recognizer)
+            )
+            threshold = max(cfg.threshold, identity_threshold)
+            decision = tracker.update(reading, threshold)
             observer(decision, reading)
+            if reload_error := getattr(enrollment, "error", None):
+                on_status(f"watching with last saved face - {reload_error}")
             if decision.event is not None:
                 _alert(cfg, decision, log)
+            if read_failures:
+                remaining = max(0, decision.needed - decision.misses)
+                check_word = "check" if remaining == 1 else "checks"
+                on_status(
+                    f"camera read failed ({read_failures} in a row) - "
+                    f"{remaining} {check_word} remaining before lock"
+                )
 
             if decision.event is Event.LOCK and not dry_run:
-                macos.lock(cfg.lock_method)
                 camera.release()
+                try:
+                    macos.lock(cfg.lock_method)
+                except RuntimeError as exc:
+                    on_status(f"lock failed: {exc}")
+                    _sleep(FAILURE_RETRY_MAX, lambda: should_stop() or paused())
+                    continue
+                if should_stop() or paused():
+                    continue
                 if cfg.stay_awake:
                     locked_by_us = True
                     awake.start()
-                time.sleep(LOCK_SETTLE)
+                _sleep(LOCK_SETTLE, lambda: should_stop() or paused())
                 continue
 
             delay = poll_delay(cfg, decision)
             if delay >= KEEP_CAMERA_OPEN_UNDER:
                 camera.release()  # green light off, sensor unpowered, between checks
-            _sleep(delay, should_stop)
+            _sleep(delay, lambda: should_stop() or paused())
     finally:
         camera.release()
         awake.stop()

@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from types import SimpleNamespace
 
 from facelock import config, vision
 
@@ -90,3 +91,38 @@ def test_legacy_sface_engine_still_embeds():
     engine = vision.FaceEngine(config.Config(), "sface")
     count, embeddings = engine.faces_and_embeddings(np.zeros((480, 640, 3), dtype=np.uint8))
     assert (count, embeddings.shape) == (0, (0, 128))
+
+
+def test_camera_open_failure_is_recoverable(monkeypatch):
+    class ClosedCapture:
+        def set(self, *_args):
+            pass
+
+        def isOpened(self):
+            return False
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(vision.cv2, "VideoCapture", lambda *_args: ClosedCapture())
+    with pytest.raises(vision.CameraError):
+        vision.Camera(config.Config()).open()
+
+
+def test_silence_opencv_logs_uses_top_level_api(monkeypatch):
+    calls = []
+    monkeypatch.setattr(vision.cv2, "setLogLevel", calls.append, raising=False)
+    monkeypatch.setattr(vision.cv2, "utils", SimpleNamespace(), raising=False)
+    monkeypatch.setattr(vision.sys.stdout, "isatty", lambda: True)
+    vision.silence_opencv_logs()
+    assert calls == [2]
+
+
+def test_silence_opencv_logs_uses_legacy_api(monkeypatch):
+    calls = []
+    logging = SimpleNamespace(LOG_LEVEL_ERROR=2, LOG_LEVEL_SILENT=0, setLogLevel=calls.append)
+    monkeypatch.delattr(vision.cv2, "setLogLevel", raising=False)
+    monkeypatch.setattr(vision.cv2, "utils", SimpleNamespace(logging=logging), raising=False)
+    monkeypatch.setattr(vision.sys.stdout, "isatty", lambda: False)
+    vision.silence_opencv_logs()
+    assert calls == [2, 0]
