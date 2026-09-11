@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import math
+import os
+import tempfile
+from zipfile import BadZipFile
 
 import numpy as np
 
 from . import config
 
 MODEL_KEY = "__recognizer__"  # npz entry naming the recognizer the samples came from
+THRESHOLD_KEY = "__threshold__"
 TOP_K = 3  # a probe is scored as the mean of its closest K enrolled views
 # Calibration: the threshold sits this far above the strongest impostor in the bank, and is
 # never set below the recognizer's default nor above a ceiling that would reject real poses.
@@ -37,15 +42,24 @@ class Enrollment:
     """Immutable set of L2-normalized embeddings grouped by profile name."""
 
     def __init__(self, profiles: dict[str, np.ndarray],
-                 recognizer: str = config.DEFAULT_RECOGNIZER):
+                 recognizer: str = config.DEFAULT_RECOGNIZER, threshold: float | None = None):
         if recognizer not in config.RECOGNIZERS:
             raise ValueError(f"unknown recognizer {recognizer!r}")
         self.recognizer = recognizer
+        if threshold is not None and not 0 < threshold < 1:
+            raise ValueError("invalid enrollment threshold")
+        self.threshold = threshold
         dim = embedding_dim(recognizer)
         self._profiles = {name: np.asarray(v, dtype=np.float32) for name, v in profiles.items()}
         for name, samples in self._profiles.items():
+            if not name.strip() or name.startswith("__"):
+                raise ValueError("profile name must be nonempty and cannot start with __")
             if samples.ndim != 2 or samples.shape[1] != dim:
                 raise ValueError(f"profile {name!r} has malformed samples {samples.shape}")
+            norms = np.linalg.norm(samples, axis=1, keepdims=True)
+            if not np.isfinite(samples).all() or not np.isfinite(norms).all() or (norms <= 0).any():
+                raise ValueError(f"profile {name!r} has invalid embeddings")
+            self._profiles[name] = samples / norms
         self._matrix = (
             np.vstack(list(self._profiles.values()))
             if self._profiles
@@ -70,7 +84,15 @@ class Enrollment:
         Taking the single best of many templates lets a stranger win on one lucky view;
         averaging the closest few asks them to resemble me from several angles at once.
         """
-        sims = np.asarray(embeddings, dtype=np.float32) @ self._matrix.T
+        probes = np.asarray(embeddings, dtype=np.float32)
+        if probes.ndim != 2 or probes.shape[1] != embedding_dim(self.recognizer):
+            raise ValueError("malformed probe embeddings")
+        norms = np.linalg.norm(probes, axis=1, keepdims=True)
+        if not np.isfinite(probes).all() or not np.isfinite(norms).all() or (norms <= 0).any():
+            raise ValueError("invalid probe embeddings")
+        if not len(self):
+            return np.zeros(len(probes), dtype=np.float32)
+        sims = (probes / norms) @ self._matrix.T
         k = min(TOP_K, sims.shape[1])
         return np.sort(sims, axis=1)[:, -k:].mean(axis=1)
 
@@ -131,19 +153,43 @@ class Enrollment:
 
     def save(self, path: Path = config.ENROLLMENT_FILE) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(path, **self._profiles, **{MODEL_KEY: np.array(self.recognizer)})
-        path.chmod(0o600)
+        metadata = {MODEL_KEY: np.array(self.recognizer)}
+        if self.threshold is not None:
+            metadata[THRESHOLD_KEY] = np.array(self.threshold)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".enrollment-", delete=False) as handle:
+                temporary = Path(handle.name)
+                np.savez_compressed(handle, **self._profiles, **metadata)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         return path
 
+    def calibrated(self, threshold: float) -> Enrollment:
+        return Enrollment(self._profiles, self.recognizer, threshold)
 
-def load(path: Path = config.ENROLLMENT_FILE) -> Enrollment:
-    if not path.exists():
+
+def load(path: Path = config.ENROLLMENT_FILE, *, missing_ok: bool = True) -> Enrollment:
+    if missing_ok and not path.exists():
         return Enrollment({})
-    with np.load(path) as data:
+    data = np.load(path)
+    if not isinstance(data, np.lib.npyio.NpzFile):
+        raise ValueError("enrollment must be an npz archive")
+    with data:
         # files written before 0.4 carry no tag and are SFace
         recognizer = str(data[MODEL_KEY]) if MODEL_KEY in data.files else "sface"
-        return Enrollment({name: data[name] for name in data.files if name != MODEL_KEY},
-                          recognizer)
+        threshold = None
+        if THRESHOLD_KEY in data.files:
+            raw_threshold = data[THRESHOLD_KEY]
+            if raw_threshold.ndim != 0 or raw_threshold.dtype.kind not in "fiu":
+                raise ValueError("invalid enrollment threshold metadata")
+            threshold = float(raw_threshold)
+        return Enrollment({name: data[name] for name in data.files
+                           if name not in (MODEL_KEY, THRESHOLD_KEY)}, recognizer, threshold)
 
 
 def require(path: Path = config.ENROLLMENT_FILE) -> Enrollment:
@@ -168,17 +214,29 @@ class Live:
         self._path = path
         self._enrollment = require(path)
         self._seen = stamp(path)
+        self.error: str | None = None
 
     def refresh(self) -> Enrollment:
-        current = stamp(self._path)
-        if current is not None and current != self._seen:
-            self._enrollment = load(self._path)
-            self._seen = current
+        try:
+            current = stamp(self._path)
+            if current is None:
+                raise FileNotFoundError("enrollment was removed; using last saved face")
+            if current != self._seen or self.error is not None:
+                replacement = load(self._path, missing_ok=False)
+                self._enrollment = replacement
+                self._seen = current
+            self.error = None
+        except (OSError, ValueError, EOFError, BadZipFile) as exc:
+            self.error = f"Could not reload enrollment: {exc}"
         return self._enrollment
 
     @property
     def recognizer(self) -> str:
         return self.refresh().recognizer
+
+    @property
+    def threshold(self) -> float | None:
+        return self.refresh().threshold
 
     def best(self, embeddings: np.ndarray) -> Match:
         return self.refresh().best(embeddings)
@@ -226,7 +284,11 @@ def calibrate(enrollment: Enrollment, bank: np.ndarray | None = None) -> Calibra
     strangers = enrollment.scores(bank)
     own = enrollment.leave_one_out()
     floor = config.default_threshold(enrollment.recognizer)
-    threshold = min(CALIBRATION_CEILING, max(floor, float(strangers.max()) + CALIBRATION_MARGIN))
+    if len(strangers) == 0:
+        raise ValueError("impostor bank is empty")
+    threshold = math.ceil(max(floor, float(strangers.max()) + CALIBRATION_MARGIN) * 1000) / 1000
+    if threshold > CALIBRATION_CEILING:
+        raise ValueError("cannot separate your enrollment from comparison faces; start over in good light")
     return Calibration(
         threshold=round(threshold, 3),
         stranger_max=float(strangers.max()),

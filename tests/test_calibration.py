@@ -65,12 +65,13 @@ def test_calibrate_sits_above_the_strongest_stranger_with_a_margin():
     assert calibration.bank_size == 60
 
 
-def test_calibrate_never_drops_below_the_default_nor_above_the_ceiling():
+def test_calibrate_never_drops_below_default_and_refuses_unsafe_overlap():
     enrollment = identity.Enrollment({"me": VIEWS})
     far = np.array([-ME])  # a bank that scores nothing
     assert identity.calibrate(enrollment, far).threshold == config.default_threshold()
     close = np.array([near(ME, 5)])  # a bank that is basically me
-    assert identity.calibrate(enrollment, close).threshold == identity.CALIBRATION_CEILING
+    with pytest.raises(ValueError, match="separate"):
+        identity.calibrate(enrollment, close)
 
 
 def test_calibrate_against_the_shipped_bank_rejects_random_strangers():

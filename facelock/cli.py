@@ -31,15 +31,6 @@ def _status_line(text: str) -> None:
     sys.stdout.flush()
 
 
-def _recalibrate(cfg: config.Config, enrollment: identity.Enrollment) -> config.Config:
-    """Set the threshold from this enrollment against the impostor bank and persist it."""
-    calibration = identity.calibrate(enrollment)
-    updated = config.with_overrides(cfg, threshold=calibration.threshold)
-    config.write(updated)
-    print(calibration.note())
-    return updated
-
-
 def cmd_enroll(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
     config.ensure_dirs()
@@ -49,18 +40,20 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     if args.add and len(current) and current.recognizer != config.DEFAULT_RECOGNIZER:
         print(f"adding to a {current.recognizer} enrollment - re-run without --add to upgrade")
     print(f"enrolling profile {args.profile!r} - {args.samples} samples ({recognizer})")
-    samples = enroll.capture(cfg, args.samples, _status_line, recognizer=recognizer)
+    samples = enroll.capture(cfg, args.samples, _status_line, recognizer=recognizer,
+                             reference=current if args.add and len(current) else None)
     print()
-    # Other profiles survive a re-enroll unless they came from a different recognizer.
     base = current if current.recognizer == recognizer else identity.Enrollment({}, recognizer)
-    updated = base.with_profile(args.profile, samples, append=args.add)
-    updated = updated.without_outliers(identity.calibrate(updated).threshold)
+    updated, calibration = enroll.prepare(base, samples, args.profile, append=args.add,
+                                          threshold=cfg.threshold)
     path = updated.save()
+    cfg = config.with_overrides(cfg, threshold=calibration.threshold)
+    config.write(cfg)
     print(f"saved {len(updated)} samples across {len(updated.profiles)} profile(s) -> {path}")
     for name, count in updated.profiles.items():
         print(f"  {name}: {count}")
     print(enroll.quality_note(updated, cfg.threshold))
-    _recalibrate(cfg, updated)
+    print(calibration.note())
     return 0
 
 
@@ -86,6 +79,7 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     print(f"you         : p05 {calibration.own_p05:.3f} (leave-one-out)")
     print(f"threshold   : {calibration.threshold:.3f} (current {cfg.threshold:.3f})")
     if args.write:
+        enrollment.calibrated(calibration.threshold).save()
         config.write(config.with_overrides(cfg, threshold=calibration.threshold))
         print(f"wrote {config.CONFIG_FILE}")
     return 0
@@ -104,11 +98,13 @@ def cmd_forget(args: argparse.Namespace) -> int:
 def cmd_test(args: argparse.Namespace) -> int:
     cfg = _resolved_config(args)
     enrollment = identity.require()
+    cfg = config.with_overrides(cfg, threshold=max(cfg.threshold, enrollment.threshold or
+                                                  config.default_threshold(enrollment.recognizer)))
     engine = vision.FaceEngine(cfg, enrollment.recognizer)
     scores: list[float] = []
     print(f"live scores against {len(enrollment)} {enrollment.recognizer} samples, "
           f"threshold {cfg.threshold:.3f}")
-    print("ctrl-c to stop and see a threshold suggestion")
+    print("ctrl-c to stop and see recognition statistics; no frames are saved")
     deadline = time.monotonic() + args.seconds if args.seconds else float("inf")
     try:
         with vision.Camera(cfg) as camera:
@@ -136,8 +132,10 @@ def cmd_test(args: argparse.Namespace) -> int:
     low = float(np.percentile(hits, 5))
     print(f"frames {len(scores)}, with a face {len(hits)}")
     print(f"score p05 {low:.3f}  median {float(np.median(hits)):.3f}  max {max(hits):.3f}")
-    suggested = round(max(0.30, min(low - 0.04, 0.50)), 3)
-    print(f"suggested threshold: {suggested:.3f} (current {cfg.threshold:.3f})")
+    accepted = sum(s >= cfg.threshold for s in scores)
+    print(f"matched {accepted}/{len(scores)} frames at threshold {cfg.threshold:.3f}")
+    print("These are match statistics, not verified accuracy. Teach a pose or lighting lesson "
+          "if your face is missed; calibrate against comparison faces before changing thresholds.")
     return 0
 
 
@@ -384,6 +382,6 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print()
         return 130
-    except ValueError as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
