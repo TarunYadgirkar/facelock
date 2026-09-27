@@ -88,7 +88,8 @@ def drive(monkeypatch, cfg, script, checks, locked_after_lock=True, on_status=la
         state["seen"] += 1
 
     watcher.run(cfg, Enrollment({"me": np.array([ME])}), observe,
-                should_stop=lambda: state["seen"] >= checks, on_status=on_status)
+                should_stop=lambda: state["seen"] >= checks and state["locks"] >= 1,
+                on_status=on_status)
     return decisions, state
 
 
@@ -186,7 +187,8 @@ def test_persistent_camera_status_follows_observer_and_includes_checks_remaining
 
     watcher.run(cfg, Enrollment({"me": np.array([ME])}), observe, dry_run=True,
                 on_status=lambda status: trace.append(status),
-                should_stop=lambda: state["observed"] == 1)
+                should_stop=lambda: state["observed"] == 1 and trace[-1].startswith(
+                    "camera read failed (3 in a row) -"))
     assert trace[-2] == "observer"
     assert trace[-1] == "camera read failed (3 in a row) - 1 check remaining before lock"
 
@@ -257,6 +259,191 @@ def test_stop_after_capture_prevents_observe_and_lock(monkeypatch):
 
 def test_camera_retry_delay_is_bounded_for_large_failure_counts():
     assert watcher._failure_delay(10_000) == watcher.FAILURE_RETRY_MAX
+
+
+def test_pause_resets_camera_failure_streak(monkeypatch):
+    class BrokenCamera(FakeCamera):
+        attempts = 0
+
+        def open(self):
+            BrokenCamera.attempts += 1
+            raise vision.CameraError("camera unavailable")
+
+    state = {"paused": False, "stopped": False}
+    statuses = []
+    monkeypatch.setattr(vision, "Camera", BrokenCamera)
+    monkeypatch.setattr(vision, "FaceEngine", ScriptedEngine)
+    monkeypatch.setattr(macos, "StayAwake", FakeAwake)
+    monkeypatch.setattr(macos, "screen_locked", lambda: False)
+
+    def sleep(_seconds, _should_stop):
+        if BrokenCamera.attempts == 2 and not state["paused"]:
+            state["paused"] = True
+        elif state["paused"]:
+            state["paused"] = False
+        elif BrokenCamera.attempts == 3:
+            state["stopped"] = True
+
+    monkeypatch.setattr(watcher, "_sleep", sleep)
+    watcher.run(config.Config(frames_per_check=1), Enrollment({"me": np.array([ME])}),
+                lambda *_args: None, paused=lambda: state["paused"],
+                should_stop=lambda: state["stopped"], on_status=statuses.append)
+    assert [status for status in statuses if status.startswith("camera read failed (")] == [
+        "camera read failed (1 in a row)",
+        "camera read failed (2 in a row)",
+        "camera read failed (1 in a row)",
+    ]
+
+
+def test_screen_lock_resets_camera_failure_streak(monkeypatch):
+    class BrokenCamera(FakeCamera):
+        attempts = 0
+
+        def open(self):
+            BrokenCamera.attempts += 1
+            raise vision.CameraError("camera unavailable")
+
+    state = {"locked": False, "stopped": False}
+    statuses = []
+    monkeypatch.setattr(vision, "Camera", BrokenCamera)
+    monkeypatch.setattr(vision, "FaceEngine", ScriptedEngine)
+    monkeypatch.setattr(macos, "StayAwake", FakeAwake)
+    monkeypatch.setattr(macos, "screen_locked", lambda: state["locked"])
+
+    def sleep(_seconds, _should_stop):
+        if BrokenCamera.attempts == 2 and not state["locked"]:
+            state["locked"] = True
+        elif state["locked"]:
+            state["locked"] = False
+        elif BrokenCamera.attempts == 3:
+            state["stopped"] = True
+
+    monkeypatch.setattr(watcher, "_sleep", sleep)
+    watcher.run(config.Config(frames_per_check=1), Enrollment({"me": np.array([ME])}),
+                lambda *_args: None, should_stop=lambda: state["stopped"],
+                on_status=statuses.append)
+    assert [status for status in statuses if status.startswith("camera read failed (")] == [
+        "camera read failed (1 in a row)",
+        "camera read failed (2 in a row)",
+        "camera read failed (1 in a row)",
+    ]
+
+
+def test_failed_lock_retries_after_backoff_and_fresh_absent_check(monkeypatch):
+    cfg = config.Config(confirm_checks=3, frames_per_check=1)
+    ScriptedEngine.script = [ABSENT] * 4
+    state = {"attempts": 0, "checks_at_lock": [], "seen": 0, "backoffs": 0}
+    monkeypatch.setattr(vision, "Camera", FakeCamera)
+    monkeypatch.setattr(vision, "FaceEngine", ScriptedEngine)
+    monkeypatch.setattr(vision, "warmup", lambda camera: None)
+    monkeypatch.setattr(macos, "StayAwake", FakeAwake)
+    monkeypatch.setattr(macos, "screen_locked", lambda: False)
+    monkeypatch.setattr(macos, "warn", lambda *_args: None)
+
+    def lock(_method):
+        state["attempts"] += 1
+        state["checks_at_lock"].append(state["seen"])
+        if state["attempts"] == 1:
+            raise RuntimeError("lock failed")
+
+    def sleep(seconds, _should_stop):
+        if seconds == watcher.FAILURE_RETRY_MAX and state["attempts"] == 1:
+            state["backoffs"] += 1
+
+    monkeypatch.setattr(macos, "lock", lock)
+    monkeypatch.setattr(watcher, "_sleep", sleep)
+    watcher.run(cfg, Enrollment({"me": np.array([ME])}),
+                lambda *_args: state.__setitem__("seen", state["seen"] + 1),
+                should_stop=lambda: state["attempts"] == 2)
+    assert state == {"attempts": 2, "checks_at_lock": [3, 4], "seen": 4, "backoffs": 1}
+
+
+def test_owner_return_cancels_failed_lock_retry(monkeypatch):
+    cfg = config.Config(confirm_checks=2, frames_per_check=1)
+    ScriptedEngine.script = [ABSENT, ABSENT, PRESENT, ABSENT]
+    state = {"attempts": 0, "seen": 0}
+    monkeypatch.setattr(vision, "Camera", FakeCamera)
+    monkeypatch.setattr(vision, "FaceEngine", ScriptedEngine)
+    monkeypatch.setattr(vision, "warmup", lambda camera: None)
+    monkeypatch.setattr(macos, "StayAwake", FakeAwake)
+    monkeypatch.setattr(macos, "screen_locked", lambda: False)
+    monkeypatch.setattr(macos, "warn", lambda *_args: None)
+    monkeypatch.setattr(watcher, "_sleep", lambda *_args: None)
+
+    def lock(_method):
+        state["attempts"] += 1
+        raise RuntimeError("lock failed")
+
+    monkeypatch.setattr(macos, "lock", lock)
+    watcher.run(cfg, Enrollment({"me": np.array([ME])}),
+                lambda *_args: state.__setitem__("seen", state["seen"] + 1),
+                should_stop=lambda: state["seen"] == 4)
+    assert state == {"attempts": 1, "seen": 4}
+
+
+def test_pause_cancels_failed_lock_retry(monkeypatch):
+    cfg = config.Config(confirm_checks=3, frames_per_check=1)
+    ScriptedEngine.script = [ABSENT] * 5
+    state = {"attempts": 0, "seen": 0, "paused": False, "backoff_done": False}
+    monkeypatch.setattr(vision, "Camera", FakeCamera)
+    monkeypatch.setattr(vision, "FaceEngine", ScriptedEngine)
+    monkeypatch.setattr(vision, "warmup", lambda camera: None)
+    monkeypatch.setattr(macos, "StayAwake", FakeAwake)
+    monkeypatch.setattr(macos, "screen_locked", lambda: False)
+    monkeypatch.setattr(macos, "warn", lambda *_args: None)
+
+    def lock(_method):
+        state["attempts"] += 1
+        raise RuntimeError("lock failed")
+
+    def sleep(_seconds, _should_stop):
+        if state["attempts"] == 1 and not state["backoff_done"]:
+            state["paused"] = True
+            state["backoff_done"] = True
+        elif state["paused"]:
+            state["paused"] = False
+
+    monkeypatch.setattr(macos, "lock", lock)
+    monkeypatch.setattr(watcher, "_sleep", sleep)
+    watcher.run(cfg, Enrollment({"me": np.array([ME])}),
+                lambda *_args: state.__setitem__("seen", state["seen"] + 1),
+                paused=lambda: state["paused"],
+                should_stop=lambda: state["seen"] == 5 or state["attempts"] == 2)
+    assert state["attempts"] == 1
+    assert state["seen"] == 5
+
+
+def test_pause_from_observer_prevents_lock(monkeypatch):
+    cfg = config.Config(confirm_checks=1, frames_per_check=1)
+    ScriptedEngine.script = [ABSENT]
+    state = {"paused": False, "stopped": False, "locks": 0}
+    monkeypatch.setattr(vision, "Camera", FakeCamera)
+    monkeypatch.setattr(vision, "FaceEngine", ScriptedEngine)
+    monkeypatch.setattr(vision, "warmup", lambda camera: None)
+    monkeypatch.setattr(macos, "StayAwake", FakeAwake)
+    monkeypatch.setattr(macos, "screen_locked", lambda: False)
+    monkeypatch.setattr(macos, "lock", lambda _method: state.__setitem__("locks", 1))
+    monkeypatch.setattr(watcher, "_sleep", lambda *_args: state.__setitem__("stopped", True))
+    watcher.run(cfg, Enrollment({"me": np.array([ME])}),
+                lambda *_args: state.__setitem__("paused", True),
+                paused=lambda: state["paused"], should_stop=lambda: state["stopped"])
+    assert state["locks"] == 0
+
+
+def test_stop_from_observer_prevents_lock(monkeypatch):
+    cfg = config.Config(confirm_checks=1, frames_per_check=1)
+    ScriptedEngine.script = [ABSENT]
+    state = {"stopped": False, "locks": 0}
+    monkeypatch.setattr(vision, "Camera", FakeCamera)
+    monkeypatch.setattr(vision, "FaceEngine", ScriptedEngine)
+    monkeypatch.setattr(vision, "warmup", lambda camera: None)
+    monkeypatch.setattr(macos, "StayAwake", FakeAwake)
+    monkeypatch.setattr(macos, "screen_locked", lambda: False)
+    monkeypatch.setattr(macos, "lock", lambda _method: state.__setitem__("locks", 1))
+    watcher.run(cfg, Enrollment({"me": np.array([ME])}),
+                lambda *_args: state.__setitem__("stopped", True),
+                should_stop=lambda: state["stopped"])
+    assert state["locks"] == 0
 
 
 def test_lock_failure_is_reported_without_starting_stay_awake(monkeypatch):

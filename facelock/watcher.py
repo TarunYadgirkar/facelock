@@ -166,12 +166,15 @@ def run(
     log = logging.getLogger(config.APP)
     read_failures = 0
     locked_by_us = False
+    pending_lock_retry = False
 
     try:
         while not should_stop():
             if macos.screen_locked():
                 camera.release()
                 tracker.reset()
+                read_failures = 0
+                pending_lock_retry = False
                 _sleep(1.0, should_stop)
                 continue
 
@@ -182,6 +185,8 @@ def run(
             if paused():
                 camera.release()
                 tracker.reset()
+                read_failures = 0
+                pending_lock_retry = False
                 _sleep(1.0, should_stop)
                 continue
 
@@ -206,6 +211,8 @@ def run(
                     return
                 if paused():
                     tracker.reset()
+                    read_failures = 0
+                    pending_lock_retry = False
                     continue
                 if read_failures < READ_FAILURES_BEFORE_MISS:
                     continue
@@ -220,6 +227,8 @@ def run(
             if paused():
                 camera.release()
                 tracker.reset()
+                read_failures = 0
+                pending_lock_retry = False
                 continue
 
             calibrated = enrollment.threshold
@@ -230,7 +239,19 @@ def run(
             )
             threshold = max(cfg.threshold, identity_threshold)
             decision = tracker.update(reading, threshold)
+            if decision.state is State.PRESENT:
+                pending_lock_retry = False
+            elif pending_lock_retry:
+                decision = Decision(decision.state, decision.misses, decision.needed, Event.LOCK)
             observer(decision, reading)
+            if should_stop():
+                return
+            if paused():
+                camera.release()
+                tracker.reset()
+                read_failures = 0
+                pending_lock_retry = False
+                continue
             if reload_error := getattr(enrollment, "error", None):
                 on_status(f"watching with last saved face - {reload_error}")
             if decision.event is not None:
@@ -244,13 +265,23 @@ def run(
                 )
 
             if decision.event is Event.LOCK and not dry_run:
+                if should_stop():
+                    return
+                if paused():
+                    camera.release()
+                    tracker.reset()
+                    read_failures = 0
+                    pending_lock_retry = False
+                    continue
                 camera.release()
                 try:
                     macos.lock(cfg.lock_method)
                 except RuntimeError as exc:
                     on_status(f"lock failed: {exc}")
+                    pending_lock_retry = True
                     _sleep(FAILURE_RETRY_MAX, lambda: should_stop() or paused())
                     continue
+                pending_lock_retry = False
                 if should_stop() or paused():
                     continue
                 if cfg.stay_awake:
