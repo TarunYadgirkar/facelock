@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import signal
 import sys
 import time
 
 import numpy as np
 
-from . import config, control, enroll, identity, macos, vision, watcher
+from . import config, control, diagnostics, enroll, identity, macos, vision, watcher
 from .watcher import Decision, Event, Reading, State, run
 
 STATE_GLYPH = {State.PRESENT: "+", State.AWAY: "-", State.STRANGER: "!"}
@@ -254,6 +255,16 @@ def cmd_status(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    checks = diagnostics.run_checks()
+    failed = any(check["status"] == "fail" for check in checks)
+    if args.json:
+        print(json.dumps({"checks": checks}, indent=2))
+    else:
+        print(diagnostics.format_report(checks))
+    return 1 if failed else 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     if args.write:
         print(f"wrote {config.write_default()}")
@@ -332,7 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--write", action="store_true", help="save it to config.toml")
     p.set_defaults(func=cmd_calibrate)
 
-    p = sub.add_parser("test", help="print live match scores and suggest a threshold")
+    p = sub.add_parser("test", help="print live match scores and recognition statistics")
     p.add_argument("--seconds", type=float, default=0.0, help="stop after N seconds")
     p.set_defaults(func=cmd_test)
 
@@ -354,6 +365,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="show watcher, enrollment and settings").set_defaults(
         func=cmd_status
     )
+    p = sub.add_parser("doctor", help="check setup without using the camera")
+    p.add_argument("--json", action="store_true", help="print checks as JSON")
+    p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("config", help="show settings or write a config file")
     p.add_argument("--write", action="store_true", help="write a config.toml of the defaults")

@@ -5,10 +5,11 @@ from __future__ import annotations
 import threading
 import time
 import logging
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
-from . import config, control, enroll, identity, macos, vision
+from . import config, control, diagnostics, enroll, identity, macos, vision
 from .watcher import Decision, Event, Reading, State, run
 
 # Phosphor icons (MIT), rendered as template images so they match light/dark menu bars
@@ -51,7 +52,8 @@ def _pause_label(expiry: float) -> str:
 class _Shared:
     """Watcher thread writes, menu bar thread reads. One assignment, no locking needed."""
 
-    def __init__(self) -> None:
+    def __init__(self, preview: bool = False) -> None:
+        self.preview = preview
         self.icon = ICON[State.STRANGER]
         self.detail = "starting recognition"
 
@@ -59,7 +61,8 @@ class _Shared:
         self.icon = ICON[decision.state]
         score = f"match {reading.match.score:.2f}"
         if decision.event is Event.LOCK:
-            self.detail = f"locked ({score})"
+            action = "would lock" if self.preview else "lock requested"
+            self.detail = f"{action} ({score})"
         elif decision.state is State.PRESENT:
             self.detail = f"watching - {score}"
         else:
@@ -77,11 +80,27 @@ class _Watcher:
     def __init__(self, shared: _Shared, dry_run: bool) -> None:
         self._shared = shared
         self._dry_run = dry_run
+        self._shared.preview = dry_run
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._mutex = threading.RLock()
         self._revision = 0
         self._cfg = config.Config()
+
+    @property
+    def preview(self) -> bool:
+        return self._shared.preview
+
+    @property
+    def requested_preview(self) -> bool:
+        return self._dry_run
+
+    def set_preview(self, enabled: bool) -> None:
+        with self._mutex:
+            self._dry_run = enabled
+            self._shared.status("switching to preview - finishing current check" if enabled
+                                else "starting protection")
+            self.restart(self._cfg)
 
     def start(self, cfg: config.Config) -> None:
         with self._mutex:
@@ -96,8 +115,10 @@ class _Watcher:
         while not self._stop.is_set():
             revision = self._revision
             cfg = self._cfg
+            dry_run = self._dry_run
+            self._shared.preview = dry_run
             try:
-                run(cfg, identity.Live(), self._shared.update, dry_run=self._dry_run,
+                run(cfg, identity.Live(), self._shared.update, dry_run=dry_run,
                     paused=control.is_paused,
                     should_stop=lambda: self._stop.is_set() or revision != self._revision,
                     on_status=self._shared.status)
@@ -156,7 +177,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
     vision.silence_opencv_logs()
     control.setup_logging()
     control.write_pid()
-    shared = _Shared()
+    shared = _Shared(preview=dry_run)
     watcher = _Watcher(shared, dry_run)
 
     class FaceLockApp(rumps.App):
@@ -168,11 +189,16 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             self._named = False  # rumps builds the status item in run(), not here
             self.status_item = rumps.MenuItem("starting")
             self.resume_item = rumps.MenuItem("Resume")
+            self.preview_item = rumps.MenuItem("Preview mode (never locks)",
+                                               callback=self.toggle_preview)
+            self.preview_item.state = dry_run
             self._was_paused = False
             self.menu = [
                 self.status_item,
                 None,
                 rumps.MenuItem("Lock Now", callback=self.lock_now),
+                rumps.MenuItem("Check Now", callback=self.check_now),
+                self.preview_item,
                 rumps.MenuItem("Pause 15 minutes", callback=self.pause_15),
                 rumps.MenuItem("Pause 1 hour", callback=self.pause_hour),
                 rumps.MenuItem("Pause until resumed", callback=self.pause_forever),
@@ -180,6 +206,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 None,
                 self._training_menu(),
                 self._settings_menu(),
+                self._help_menu(),
                 None,
                 rumps.MenuItem("Quit FaceLock", callback=self.quit),
             ]
@@ -241,6 +268,29 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             self.notify_item.state = self.cfg.notify
             self.login_item.state = macos.agent_installed()
 
+        def _help_menu(self) -> rumps.MenuItem:
+            menu = rumps.MenuItem("Help & Diagnostics")
+            menu.add(rumps.MenuItem("Health Check", callback=self.health_check))
+            menu.add(rumps.MenuItem("Camera Privacy Settings", callback=self.open_camera_settings))
+            menu.add(rumps.MenuItem("Open Log", callback=self.open_log))
+            return menu
+
+        def health_check(self, _) -> None:
+            rumps.alert(title="FaceLock Health Check",
+                        message=diagnostics.format_report(diagnostics.run_checks()))
+
+        def _open(self, *arguments: str) -> None:
+            try:
+                subprocess.run(["open", *arguments], check=True, capture_output=True, timeout=5)
+            except (OSError, subprocess.SubprocessError) as error:
+                shared.status(f"could not open: {error}")
+
+        def open_camera_settings(self, _) -> None:
+            self._open("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
+
+        def open_log(self, _) -> None:
+            self._open("-a", "Console", str(config.LOG_FILE))
+
         def _apply(self, **changes) -> None:
             """Persist a settings change and hand the watcher the new config."""
             if self.learning:
@@ -274,6 +324,9 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 want, label = PAUSED_ICON, _pause_label(expiry)
             else:
                 want, label = shared.icon, shared.detail
+            if watcher.preview:
+                label = f"PREVIEW - {label} - locking disabled"
+            self.preview_item.state = watcher.preview
             if self.icon != want:
                 self.icon = want
             if self.status_item.title != label:
@@ -328,10 +381,25 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
         # --- actions -------------------------------------------------------
 
         def lock_now(self, _) -> None:
+            if watcher.preview or watcher.requested_preview:
+                shared.status("would lock - preview mode is on")
+                return
             try:
                 macos.lock(self.cfg.lock_method)
             except (OSError, RuntimeError) as error:
                 shared.status(f"could not lock: {error}")
+
+        def toggle_preview(self, _) -> None:
+            if self.learning:
+                return
+            watcher.set_preview(not watcher.requested_preview)
+            self.preview_item.state = watcher.preview
+
+        def check_now(self, _) -> None:
+            if self.learning or control.is_paused():
+                return
+            shared.status("checking now")
+            watcher.restart(self.cfg)
 
         def pause_15(self, _) -> None:
             control.pause(15 * 60)
