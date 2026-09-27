@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
+import shlex
 import signal
+import subprocess
+import tempfile
 import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -29,9 +33,21 @@ def parse_duration(text: str) -> float:
 
 def pause(seconds: float, path: Path = config.PAUSE_FILE) -> float | None:
     """Suspend watching. Returns the wall-clock expiry, or None when indefinite."""
+    if seconds != FOREVER and (not math.isfinite(seconds) or seconds <= 0):
+        raise ValueError("pause duration must be positive and finite, or forever")
     path.parent.mkdir(parents=True, exist_ok=True)
     until = None if seconds == FOREVER else time.time() + seconds
-    path.write_text("forever" if until is None else f"{until:.0f}")
+    if until is not None and not math.isfinite(until):
+        raise ValueError("pause expiry is out of range")
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as file:
+            file.write("forever" if until is None else repr(until))
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
     return until
 
 
@@ -53,10 +69,8 @@ def pause_expiry(path: Path = config.PAUSE_FILE) -> float | None:
     try:
         until = float(raw)
     except ValueError:
-        path.unlink(missing_ok=True)
         return None
-    if until <= time.time():
-        path.unlink(missing_ok=True)
+    if not math.isfinite(until) or until <= time.time():
         return None
     return until
 
@@ -98,6 +112,8 @@ def running_pid(path: Path = config.PID_FILE) -> int | None:
         pid = int(path.read_text().strip())
     except (FileNotFoundError, ValueError):
         return None
+    if pid <= 0 or pid > 2 ** 31 - 1:
+        return None
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -108,10 +124,56 @@ def running_pid(path: Path = config.PID_FILE) -> int | None:
     return pid
 
 
+def _is_watcher_command(args: list[str]) -> bool:
+    if not args:
+        return False
+    command = Path(args[0]).name.lower()
+    tail = args[1:]
+    if command.startswith("python"):
+        while tail and tail[0] in ("-u", "-B"):
+            tail = tail[1:]
+        if tail[:2] == ["-m", "facelock"]:
+            tail = tail[2:]
+        elif tail and Path(tail[0]).name == "facelock":
+            tail = tail[1:]
+        else:
+            return False
+    elif command != "facelock":
+        return False
+
+    index = 0
+    global_options = ("--camera", "--threshold", "--interval", "--recheck")
+    while index < len(tail):
+        option, separator, value = tail[index].partition("=")
+        if option not in global_options:
+            break
+        if separator:
+            if not value:
+                return False
+            index += 1
+        else:
+            if index + 1 >= len(tail) or tail[index + 1].startswith("--") or tail[index + 1] in ("watch", "menubar"):
+                return False
+            index += 2
+    if index >= len(tail) or tail[index] not in ("watch", "menubar"):
+        return False
+    suffix = ("--dry-run", "-v", "--verbose") if tail[index] == "watch" else ("--dry-run",)
+    return all(arg in suffix for arg in tail[index + 1:])
+
+
 def stop_running(path: Path = config.PID_FILE) -> int | None:
     pid = running_pid(path)
-    if pid is not None:
-        os.kill(pid, signal.SIGTERM)
+    if pid is None:
+        return None
+    try:
+        result = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                                capture_output=True, text=True, check=False, timeout=2)
+        args = shlex.split(result.stdout.strip()) if result.returncode == 0 else []
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    if not _is_watcher_command(args):
+        return None
+    os.kill(pid, signal.SIGTERM)
     return pid
 
 
