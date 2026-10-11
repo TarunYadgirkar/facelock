@@ -30,7 +30,7 @@ def run_checks() -> list[dict[str, str]]:
         if not len(enrollment):
             add("enrollment", "fail", "No face samples; run facelock enroll")
         else:
-            add("enrollment", "pass", f"{len(enrollment)} samples, {len(enrollment.profiles)} profiles ({enrollment.recognizer})")
+            add("enrollment", "pass", f"{len(enrollment)} samples, {len(enrollment.profiles)} profile{'' if len(enrollment.profiles) == 1 else 's'} ({enrollment.recognizer})")
     except FileNotFoundError:
         enrollment = None
         add("enrollment", "fail", "No enrollment; run facelock enroll")

@@ -44,9 +44,13 @@ LESSONS = (
 
 def _pause_label(expiry: float) -> str:
     if expiry == control.FOREVER:
-        return "paused until resumed"
+        return "paused until you resume"
     left = max(0.0, expiry - time.time())
-    return f"paused - {left / 60:.0f}m left" if left >= 60 else f"paused - {left:.0f}s left"
+    return f"paused · {left / 60:.0f} min left" if left >= 60 else f"paused · {left:.0f} s left"
+
+
+def _lock_countdown(left: int) -> str:
+    return "locks if the next check misses" if left == 1 else f"locks if the next {left} checks miss"
 
 
 class _Shared:
@@ -55,19 +59,20 @@ class _Shared:
     def __init__(self, preview: bool = False) -> None:
         self.preview = preview
         self.icon = ICON[State.STRANGER]
-        self.detail = "starting recognition"
+        self.detail = "starting up"
 
     def update(self, decision: Decision, reading: Reading) -> None:
         self.icon = ICON[decision.state]
         score = f"match {reading.match.score:.2f}"
         if decision.event is Event.LOCK:
-            action = "would lock" if self.preview else "lock requested"
-            self.detail = f"{action} ({score})"
+            action = "would lock now" if self.preview else "lock requested"
+            self.detail = f"{action} · {score}"
         elif decision.state is State.PRESENT:
-            self.detail = f"watching - {score}"
+            self.detail = f"you're here · {score}"
         else:
-            left = decision.needed - decision.misses
-            self.detail = f"not seen - {left} checks from locking ({score})"
+            who = "someone else in frame" if decision.state is State.STRANGER else "you're away"
+            countdown = _lock_countdown(decision.needed - decision.misses)
+            self.detail = f"{who} · {countdown} · {score}"
 
     def status(self, detail: str) -> None:
         self.icon = ICON[State.STRANGER]
@@ -98,8 +103,8 @@ class _Watcher:
     def set_preview(self, enabled: bool) -> None:
         with self._mutex:
             self._dry_run = enabled
-            self._shared.status("switching to preview - finishing current check" if enabled
-                                else "starting protection")
+            self._shared.status("switching to preview after this check" if enabled
+                                else "turning locking back on")
             self.restart(self._cfg)
 
     def start(self, cfg: config.Config) -> None:
@@ -124,7 +129,7 @@ class _Watcher:
                     on_status=self._shared.status)
             except (Exception, SystemExit) as error:
                 logging.getLogger(config.APP).exception("watcher failed; retrying")
-                self._shared.status(f"not protecting - {error}; retrying")
+                self._shared.status(f"not protecting · {error} · retrying in {RETRY_SECONDS:.0f} s")
                 self._stop.wait(RETRY_SECONDS)
 
     def stop(self, timeout: float = 10.0) -> bool:
@@ -169,7 +174,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
     if running is not None:
         # Opening the app while it is already up would put a second eye in the menu bar and a
         # second process on the camera. Exit 0 so launchd's KeepAlive does not retry in a loop.
-        macos.banner("facelock", "already running - the eye is in the menu bar")
+        macos.banner("facelock", "already running. Look for the eye in the menu bar.")
         print(f"facelock is already running (pid {running})")
         return 0
 
@@ -220,7 +225,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             self._enrollment_stamp = None
             self.threshold_item = rumps.MenuItem("")
             self.upgrade_item = rumps.MenuItem(
-                "Start Over to upgrade recognition - the old model let strangers through")
+                "Old model lets some strangers through. Start Over to upgrade.")
             menu.add(self.enrollment_item)
             menu.add(self.threshold_item)
             menu.add(self.upgrade_item)
@@ -260,8 +265,8 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 item.state = name == active
                 values = config.PRESETS[name]
                 grace = config.grace_seconds(replace(self.cfg, **values))
-                item.title = f"{name} - locks ~{grace / 60:.0f} min after you leave" if grace >= 90 \
-                    else f"{name} - locks ~{grace:.0f}s after you leave"
+                item.title = f"{name} · locks ~{grace / 60:.0f} min after you leave" if grace >= 90 \
+                    else f"{name} · locks ~{grace:.0f} s after you leave"
             self.lock_item.state = self.cfg.lock_method == "sleep"
             self.awake_item.state = self.cfg.stay_awake
             self.sound_item.state = self.cfg.sound
@@ -325,7 +330,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
             else:
                 want, label = shared.icon, shared.detail
             if watcher.preview:
-                label = f"PREVIEW - {label} - locking disabled"
+                label = f"preview, never locks · {label}"
             self.preview_item.state = watcher.preview
             if self.icon != want:
                 self.icon = want
@@ -343,14 +348,14 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 try:
                     enrollment = identity.load()
                 except (OSError, ValueError) as error:
-                    self.enrollment_item.title = "Enrollment unreadable - use Start Over"
+                    self.enrollment_item.title = "Enrollment unreadable. Start Over to redo it."
                     shared.status(f"enrollment error: {error}")
                     return
                 known = sum(enrollment.profiles.values())
                 own = enrollment.leave_one_out()
                 weakest = f"{own.min():.2f}" if len(own) else "-"
                 self.enrollment_item.title = (
-                    f"knows {known} views ({enrollment.recognizer}) - weakest scores {weakest}"
+                    f"knows {known} views ({enrollment.recognizer}) · weakest view scores {weakest}"
                 )
                 legacy = enrollment.recognizer != config.DEFAULT_RECOGNIZER
                 self.upgrade_item.hidden = not legacy
@@ -375,14 +380,14 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 threshold = max(self.cfg.threshold, enrollment.threshold or
                                 config.default_threshold(enrollment.recognizer))
             except (OSError, ValueError):
-                return "Enrollment unavailable - use Start Over"
+                return "Enrollment unavailable. Start Over to redo it."
             return f"counts as you at match {threshold:.2f} or better"
 
         # --- actions -------------------------------------------------------
 
         def lock_now(self, _) -> None:
             if watcher.preview or watcher.requested_preview:
-                shared.status("would lock - preview mode is on")
+                shared.status("would lock now · preview is on")
                 return
             try:
                 macos.lock(self.cfg.lock_method)
@@ -462,7 +467,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 if not watcher.stop():
                     raise RuntimeError("camera is still closing; retry the lesson")
                 for left in range(int(LEARN_COUNTDOWN), 0, -1):
-                    self.learning = f"{hint} - starting in {left}"
+                    self.learning = f"{hint} · starting in {left}"
                     if self._quitting.wait(1.0):
                         return
                 current = identity.Enrollment({}) if replace_all else identity.load()
@@ -484,7 +489,7 @@ def main(cfg: config.Config, dry_run: bool = False) -> int:
                 updated.save()
                 self.cfg = config.with_overrides(self.cfg, threshold=calibration.threshold)
                 config.write(self.cfg)
-                self.learning = (f"learned {len(captured)} views - "
+                self.learning = (f"learned {len(captured)} views · "
                                  f"strangers top out at {calibration.stranger_max:.2f}, "
                                  f"you count from {calibration.threshold:.2f}")
             except (SystemExit, Exception) as error:  # a failed lesson must not kill the app

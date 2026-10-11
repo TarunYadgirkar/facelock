@@ -149,6 +149,19 @@ def test_normal_mode_does_not_report_lock_before_confirmation():
     assert "locked" not in shared.detail
 
 
+def test_status_tells_a_stranger_apart_from_an_empty_chair():
+    from facelock.identity import NO_MATCH
+    from facelock.watcher import Decision, Reading, State
+
+    shared = menubar._Shared()
+    shared.update(Decision(State.STRANGER, 1, 3), Reading(NO_MATCH, 1))
+    assert shared.detail.startswith("someone else in frame")
+    assert "next 2 checks miss" in shared.detail
+    shared.update(Decision(State.AWAY, 2, 3), Reading(NO_MATCH, 0))
+    assert shared.detail.startswith("you're away")
+    assert "next check misses" in shared.detail
+
+
 def test_switching_preview_cancels_old_run_and_keeps_one_worker(monkeypatch):
     calls = []
     active = []

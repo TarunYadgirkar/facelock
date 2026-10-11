@@ -2,13 +2,13 @@
 
 Open FaceLock from Applications or Spotlight. Its menu now includes:
 
-- **Preview mode (never locks)**: exercise recognition and see when FaceLock would lock. Automatic locking and Lock Now are disabled once preview is active. The status begins with `PREVIEW` and says `locking disabled`. When switching, the current check finishes before preview becomes active. This setting lasts for the current app session; relaunch uses normal mode unless launched with `menubar --dry-run`.
+- **Preview mode (never locks)**: exercise recognition and see when FaceLock would lock. Automatic locking and Lock Now are disabled once preview is active. The status line begins with `preview, never locks`. When switching, the current check finishes before preview becomes active. This setting lasts for the current app session; relaunch uses normal mode unless launched with `menubar --dry-run`.
 - **Check Now**: start a fresh presence check instead of waiting for the normal interval. This starts a new absence sequence. It does nothing while paused or training, and never resumes a pause.
 - **Help & Diagnostics → Health Check**: inspect configuration, enrollment, required model files, comparison bank, pause state, watcher PID, app launcher, and login-agent file. A living PID alone does not prove protection is working.
 - **Camera Privacy Settings**: open the macOS camera permission pane.
 - **Open Log**: open the current log in Console.
 
-For a safe recognition trial, enable Preview, wait for the `PREVIEW` status, then Resume if paused. Look at the screen normally, look down, change lighting, and use Check Now to see whether the existing enrollment covers your usual positions. Use Training lessons for missed poses. Turn Preview off when ready for normal locking. Training uses the existing owner gate; no face images are saved.
+For a safe recognition trial, enable Preview, wait for the `preview, never locks` status, then Resume if paused. Look at the screen normally, look down, change lighting, and use Check Now to see whether the existing enrollment covers your usual positions. Use Training lessons for missed poses. Turn Preview off when ready for normal locking. Training uses the existing owner gate; no face images are saved.
 
 ## Terminal diagnostics
 
