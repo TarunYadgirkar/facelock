@@ -1,18 +1,32 @@
 # FaceLock
 
-Locks this Mac when **my** face stops showing up in front of the webcam.
+A macOS menu bar app that locks the Mac when **my** face leaves the webcam. Detection and
+recognition run on the CPU, offline, and the match threshold is calibrated for my enrollment
+against 4,000 faces of other people.
+
+![facelock calibrate scoring 4,000 strangers against my enrollment](assets/generated/facelock-calibrate.gif)
+
+That run is my real enrollment of 203 views. The strongest of the 4,000 banked strangers scores
+0.302 and 99% of them stay under 0.195. My own views, each scored against the rest
+(leave-one-out), clear 0.813 in 95% of cases. FaceLock counts a face as mine at 0.420, which leaves
+a wide gap on both sides.
+
+**No liveness check.** A photo of me on a phone screen passes. This is a convenience lock for
+walking away from the desk, not authentication.
+
+## How it watches
 
 It does not stare at you. Every **30 seconds** it wakes the camera for a fraction of a second and
-takes one look. If you are there, it goes back to sleep. If you are not, the rechecks close in —
-**10s**, then **5s** — and the third miss locks the screen, about **45 seconds** after you left at
-worst. Missing once is cheap; missing twice means you are gone, so it stops waiting around.
-A face that is in frame but *isn't yours* gets its own fast cadence.
-Locking shows the lock screen only — everything keeps running behind it.
+takes one look. If you are there, it goes back to sleep. If you are not, the rechecks close in
+(**10 s**, then **5 s**) and the third miss locks the screen, about **45 seconds** after you left
+at worst. Missing once is cheap; missing twice means you are gone, so it stops waiting around.
+A face in frame that isn't yours gets its own fast cadence. Locking shows the lock screen only,
+and everything keeps running behind it.
 
-Face detection is OpenCV **YuNet**; identity is an **ArcFace** embedding (InsightFace's
+Face detection is OpenCV **YuNet**. Identity is an **ArcFace** embedding (InsightFace's
 MobileFaceNet, `w600k_mbf`, run through OpenCV's dnn) scored as the mean cosine similarity to the
-three closest locally enrolled views. Everything runs offline on the CPU, no frame is ever written
-to disk, and between checks the camera is fully released — green light off.
+three closest enrolled views. No frame is ever written to disk, and between checks the camera is
+fully released, so the green light is off.
 
 ### Why ArcFace, and why not the single best view
 
@@ -36,26 +50,37 @@ people, and after every enrollment the threshold is set a margin above the stron
 .venv/bin/facelock install-app     # FaceLock.app in ~/Applications
 ```
 
-Grant camera access when macOS asks — **System Settings → Privacy & Security → Camera** — and
+Grant camera access when macOS asks (**System Settings → Privacy & Security → Camera**), and
 restart the terminal if the first capture fails.
 
 ## The app
 
-`FaceLock.app` lives in the menu bar (no Dock icon) and everything is done from there —
-the terminal commands below are the same features for anyone who prefers them.
+`FaceLock.app` lives in the menu bar (no Dock icon) and everything is done from there.
+The terminal commands below are the same features for anyone who prefers them.
 
-- the bar icon tells the state: eye = you're here, crossed eye = missing and on the
-  clock, warning = someone else in frame, pause = paused, student = learning your face
-  ([Phosphor](https://phosphoricons.com) icons, MIT)
-- **Lock Now**, **Pause** (15 min / 1 hour / until resumed), **Resume** (grayed unless paused);
-  while paused the first menu line counts down: `paused - 12m left`
+- The bar icon shows the state, and the first menu line says it in words:
+
+  | Icon | Status line |
+  |---|---|
+  | eye | `you're here · match 0.81` |
+  | crossed eye | `you're away · locks if the next 2 checks miss · match 0.00` |
+  | warning | `someone else in frame · locks if the next check misses · match 0.18` |
+  | pause | `paused · 12 min left` |
+  | student | the pose prompt while it learns your face |
+
+  In **Preview** the line starts with `preview, never locks` and a lock shows as `would lock now`.
+  Icons are [Phosphor](https://phosphoricons.com) (MIT).
+- **Lock Now**, **Check Now**, **Preview mode (never locks)**, **Pause** (15 min / 1 hour /
+  until resumed) and **Resume** (grayed unless paused).
 - **Training ▸** teaches it a pose without re-enrolling: pick the lesson, get into the pose
   during the countdown, and it captures ~15 more views and appends them. The running watcher
-  picks up the new samples immediately — no restart. **Start Over** redoes the full enrollment.
+  picks up the new samples immediately, with no restart. **Start Over** redoes the full enrollment.
 - **Settings ▸** cadence preset (each line states how long you can be gone before it locks),
   whether locking also turns the display off, **Stay awake while locked**, the warning sound and
   banner, and **Start at Login**.
   Changes are written to `config.toml` and restart the watcher in place.
+- **Help & Diagnostics ▸** runs the same checks as `facelock doctor`, opens the camera privacy
+  pane, or opens the log in Console.
 
 **Relaunching after Quit**: Spotlight (⌘-space) → *FaceLock*, or open `~/Applications/FaceLock.app`.
 Tick **Start at Login** and it comes back by itself after a reboot.
@@ -65,7 +90,8 @@ Tick **Start at Login** and it comes back by itself after a reboot.
 | Command | What it does |
 |---|---|
 | `enroll [--profile NAME] [--add]` | capture reference samples and calibrate the threshold; separate profiles for glasses, evening light, etc. |
-| `calibrate [--write]` | score the impostor bank against the enrollment and pick the threshold |
+| `calibrate [--write]` | score the impostor bank against the enrollment and pick the threshold (no camera) |
+| `teach LESSON` | ask the running app to capture a pose, since it holds the camera permission |
 | `forget NAME` | drop a profile |
 | `test [--seconds N]` | live match scores and percentile stats |
 | `watch [--dry-run] [-v]` | the watcher, in a terminal |
@@ -73,30 +99,31 @@ Tick **Start at Login** and it comes back by itself after a reboot.
 | `install-app` / `uninstall-app` | put FaceLock.app in `~/Applications` / remove it and the login agent |
 | `pause [15m\|45s\|2h\|forever]` / `resume` | suspend any running watcher from another terminal |
 | `status` | watcher pid, pause state, enrollment quality, settings, recent log lines |
+| `doctor` | check config, models, enrollment and login agent without using the camera |
 | `stop` | signal a running watcher to exit |
 | `config [--write]` | show effective settings, or write a commented `config.toml` |
 | `install-agent [--headless]` / `uninstall-agent` | login autostart by hand (the app's checkbox does this for you) |
 
 ## Behaviour
 
-- **Present** — one check every `interval` (30 s). Each check is a 3-frame burst; the best frame
+- **Present**: one check every `interval` (30 s). Each check is a 3-frame burst; the best frame
   wins, so one blurry frame never counts against you.
-- **Missing** — the first recheck waits `recheck_interval` (10 s) and each one after it waits
+- **Missing**: the first recheck waits `recheck_interval` (10 s) and each one after it waits
   `recheck_decay` (0.5) of the last, down to a 2 s floor. `confirm_checks` (3) consecutive
   checks without you lock the screen, warning before the final one.
-- **Stranger** — a face that isn't yours is rechecked after `stranger_interval` (5 s), so someone
+- **Stranger**: a face that isn't yours is rechecked after `stranger_interval` (5 s), so someone
   sitting down at your machine locks it in seconds.
-- **Locked or paused** — the camera stays released and nothing polls. Watching resumes on unlock.
-- **Camera trouble** — an unreadable frame counts as a miss (fail secure), with exponential
+- **Locked or paused**: the camera stays released and nothing polls. Watching resumes on unlock.
+- **Camera trouble**: an unreadable frame counts as a miss (fail secure), with exponential
   backoff on reopening rather than a lock loop.
 - Locking calls `SACLockScreenImmediate` (the real lock screen); set
   `lock_method = "sleep"` for `pmset displaysleepnow` instead.
-- **Locked, not asleep** — `pmset` here sleeps the Mac a minute after the display darkens, which
+- **Locked, not asleep**: `pmset` here sleeps the Mac a minute after the display darkens, which
   kills anything running behind the lock screen. After facelock locks, it holds
   `caffeinate -i -w <pid>` until you unlock: idle sleep is held off on battery and power alike,
   the display still darkens, and the assertion cannot outlive the watcher. Manual locks and lid
   closes are untouched. `stay_awake = false` (or the Settings toggle) turns it off.
-- **Upgrading from 0.3** — an SFace enrollment keeps working with the old model until you
+- **Upgrading from 0.3**: an SFace enrollment keeps working with the old model until you
   **Start Over** (or `facelock enroll`), which re-enrolls with ArcFace and calibrates.
 
 ## Cost
@@ -128,9 +155,9 @@ log and pause file in `~/.local/state/facelock/`, models in `models/` (auto-down
 
 ## Limits
 
-- A photo of you on a phone screen will pass. No liveness check — this is a convenience lock,
-  not authentication.
-- Worst-case walk-away exposure is `interval` plus the shrinking rechecks — ~45 s on the Balanced
+- A photo of you on a phone screen will pass. There is no liveness check, so this is a
+  convenience lock, not authentication.
+- Worst-case walk-away exposure is `interval` plus the shrinking rechecks: ~45 s on the Balanced
   preset, ~21 s on Strict. Settings ▸ states the number for each preset; the old always-on
   behaviour is roughly `interval = 1, recheck_interval = 1, confirm_checks = 3`.
 - Poor or backlit lighting drops match scores. Enroll a second profile with `--add` under the
