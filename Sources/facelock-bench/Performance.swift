@@ -92,13 +92,9 @@ enum Burst {
         let p = try FacePipeline(models: models)
         let frame = try cameraFrame(image)
         let owner = try StandInOwner(pipeline: p, frame: frame)
-        func look() throws -> [Double] {
+        func look() throws -> [StageTimes] {
             try (0..<3).map { _ in
-                try autoreleasepool {
-                    let t0 = Usage.now().wallMs
-                    _ = try p.analyze(frame: frame.vImage, recognition: owner.recognition)
-                    return Usage.now().wallMs - t0
-                }
+                try autoreleasepool { try p.analyze(frame: frame.vImage, recognition: owner.recognition).times }
             }
         }
         _ = try look()
@@ -109,8 +105,11 @@ enum Burst {
             let u0 = Usage.now()
             let t = try look()
             let d = Usage.now().since(u0)
-            rows.append(["frames_ms": t.map { rounded($0, 2) }, "look_cpu_ms": rounded(d.cpuMs, 2),
-                         "look_cpu_energy_mj": rounded(d.energyMJ, 2)])
+            let first = t[0]
+            rows.append(["frames_ms": t.map { rounded($0.total, 2) }, "look_cpu_ms": rounded(d.cpuMs, 2),
+                         "look_cpu_energy_mj": rounded(d.energyMJ, 2),
+                         "first_frame_stages_ms": ["detect": rounded(first.detect, 2), "align": rounded(first.align, 2),
+                                                   "quality": rounded(first.quality, 2), "embed": rounded(first.embed, 2)]])
         }
         let first = rows.compactMap { ($0["frames_ms"] as? [Double])?.first }
         let later = rows.flatMap { ($0["frames_ms"] as? [Double])?.dropFirst() ?? [] }
