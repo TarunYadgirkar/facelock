@@ -197,3 +197,75 @@ struct AdaptationTests {
         #expect(Adaptation.resetting(big).anchors.count == 10)
     }
 }
+
+@Suite("Enrollment, Teach and Check with someone else")
+struct EnrollmentTests {
+    let base = unit(700)
+
+    func frame(_ e: [Float], face: DetectedFace = frontalFace(), quality: QualityFlags = [], anchor: Float = 0.7,
+               faces: Int = 1) -> FrameObservation {
+        let o = FaceObservation(face: face, metrics: QualityGate.metrics(face, frameWidth: 640, frameHeight: 480),
+                                quality: quality, score: MatchScore(union: anchor, anchor: anchor), embedding: e,
+                                faceLuma: 120, sharpness: 80)
+        return FrameObservation(faces: Array(repeating: o, count: faces))
+    }
+
+    @Test("a target fills after 6 novel frames at least 250 ms apart")
+    func targetFills() {
+        var s = EnrollmentSession(session: 1)
+        var at = t0
+        var rejections: [EnrollmentRejection] = []
+        for i in 0..<20 {
+            let (next, r) = s.offering(frame(vector(near: base, cosine: 0.8, seed: i)), for: .centre, at: at)
+            s = next
+            if let r { rejections.append(r) }
+            at = at.addingTimeInterval(i % 2 == 0 ? 0.1 : 0.3)
+        }
+        #expect(s.progress(.centre) == 1)
+        #expect(s.accepted[.centre]?.count == 6)
+        #expect(rejections.contains(.tooSoon))
+        #expect(rejections.contains(.targetFull))
+        #expect(s.currentTarget == .left)
+        #expect(s.templates.allSatisfy { $0.session == 1 && $0.pool == .anchor && $0.target == "centre" })
+    }
+
+    @Test("near-duplicates, extra faces, failed quality and the wrong pose are refused")
+    func refusals() {
+        let s = EnrollmentSession(session: 1)
+        let e = vector(near: base, cosine: 0.8, seed: 1)
+        let (one, _) = s.offering(frame(e), for: .centre, at: t0)
+        #expect(one.offering(frame(vector(near: e, cosine: 0.99, seed: 2)), for: .centre, at: t0 + 1).1 == .notNovel)
+        #expect(s.offering(frame(e, faces: 2), for: .centre, at: t0).1 == .notOneFace)
+        #expect(s.offering(frame(e, quality: .dark), for: .centre, at: t0).1 == .quality)
+        #expect(one.offering(frame(vector(near: base, cosine: 0.8, seed: 3)), for: .left, at: t0 + 1).1 == .wrongPose)
+        let turned = frontalFace(yaw: 0.2)
+        #expect(one.offering(frame(vector(near: base, cosine: 0.8, seed: 4), face: turned), for: .left, at: t0 + 1).1 == nil)
+        #expect(one.offering(frame(vector(near: base, cosine: 0.8, seed: 5), face: frontalFace(iod: 80)), for: .closer, at: t0 + 1).1 == nil)
+        #expect(s.skipping(.glasses).skipped.contains(.glasses))
+        #expect(!s.skipping(.left).skipped.contains(.left))
+    }
+
+    @Test("teach adds looks below T, and rejects a different person")
+    func teach() {
+        let g = Gallery((0..<6).map { template(vector(near: base, cosine: 0.9, seed: $0), at: Double($0)) })
+        let t = Thresholds(accept: 0.6)
+        var teach = TeachSession(startedAt: t0)
+        for i in 0..<10 { teach = teach.offering(frame(vector(near: base, cosine: 0.6, seed: 40 + i), anchor: 0.45), at: t0 + Double(i) * 0.4, session: 2) }
+        #expect(teach.isOver(at: t0 + 5))
+        let (added, outcome) = teach.finish(into: g, thresholds: t)
+        #expect(outcome == .added(templates: teach.captured.count))
+        #expect(added.anchors.count == 6 + teach.captured.count)
+
+        var other = TeachSession(startedAt: t0)
+        for i in 0..<5 { other = other.offering(frame(unit(80 + i), anchor: 0.1), at: t0 + Double(i) * 0.5, session: 2) }
+        #expect(other.finish(into: g, thresholds: t).1 == .differentPerson)
+        #expect(TeachSession(startedAt: t0).finish(into: g, thresholds: t).1 == .nothingCaptured)
+    }
+
+    @Test("check with someone else keeps only their best score")
+    func someoneElse() {
+        let c = SomeoneElseCheck().offering(frame(unit(1), anchor: 0.3)).offering(frame(unit(2), anchor: 0.5))
+            .offering(FrameObservation(faces: []))
+        #expect(c.maxScore == 0.5)
+    }
+}
