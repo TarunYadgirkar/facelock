@@ -1,0 +1,40 @@
+{
+  "image": "grace_hopper.jpg",
+  "frame": "aspect-fit into 640x480 on grey 90 (StoredImageCamera), vImageScale to 320x240",
+  "detector": {
+    "implementation": "OpenCV 5.0.0 FaceDetectorYN, face_detection_yunet_2023mar.onnx, fp32",
+    "score": 0.937,
+    "box": [
+      258.023,
+      91.506,
+      145.868,
+      175.022
+    ],
+    "landmarks": [
+      [
+        297.158,
+        154.481
+      ],
+      [
+        359.392,
+        153.594
+      ],
+      [
+        329.891,
+        187.644
+      ],
+      [
+        306.503,
+        217.174
+      ],
+      [
+        361.154,
+        216.071
+      ]
+    ]
+  },
+  "r50": {
+    "file": "grace_hopper_r50.f16",
+    "implementation": "onnxruntime 1.31.0 CPU fp32, w600k_r50.onnx"
+  }
+}
