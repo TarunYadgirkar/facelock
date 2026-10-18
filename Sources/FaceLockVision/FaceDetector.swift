@@ -3,8 +3,9 @@ import CoreML
 import FaceLockCore
 import Foundation
 
-/// YuNet on Core ML: a 320x240 BGRA detector input in, faces in 640x480 frame pixels out
-/// (the decode, including the 2x scale back to the frame, runs inside the graph).
+/// YuNet on Core ML: a 320x240 BGRA pixel buffer in (Core ML reads it as a BGR image, so no
+/// CPU-side float conversion), faces in 640x480 frame pixels out. The decode, including the 2x
+/// scale back to the frame, runs inside the graph.
 public final class FaceDetector: @unchecked Sendable {
     public static let inputWidth = 320
     public static let inputHeight = 240
@@ -14,28 +15,34 @@ public final class FaceDetector: @unchecked Sendable {
     public static let nmsIoU = 0.3
 
     private let model: MLModel
-    private let input: MLMultiArray
     private let provider: MLDictionaryFeatureProvider
-    /// The detector input frame; callers fill it (vImageScale of the camera frame, or a draw).
-    public let frame = BGRABuffer(width: FaceDetector.inputWidth, height: FaceDetector.inputHeight)
+    /// The detector input, IOSurface-backed and reused; callers fill it with `withInput`.
+    public let input = PixelBuffers.makeBGRA(width: FaceDetector.inputWidth, height: FaceDetector.inputHeight)
 
     public init(url: URL, compute: ComputeChoice = .neuralEngine) throws {
         model = try loadModel(url, compute: compute)
-        input = try MLMultiArray(shape: [1, NSNumber(value: Self.inputHeight), NSNumber(value: Self.inputWidth), 4],
-                                 dataType: .float32)
-        provider = try MLDictionaryFeatureProvider(dictionary: ["frame": MLFeatureValue(multiArray: input)])
+        provider = try MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: input)])
     }
 
-    /// Scales a full camera frame into `frame` (vImageScale into the reused buffer).
+    /// Writes into the detector input (locked for the duration).
+    public func withInput<R>(_ body: (vImage_Buffer) throws -> R) rethrows -> R {
+        CVPixelBufferLockBaseAddress(input, [])
+        defer { CVPixelBufferUnlockBaseAddress(input, []) }
+        let v = vImage_Buffer(data: CVPixelBufferGetBaseAddress(input), height: vImagePixelCount(Self.inputHeight),
+                              width: vImagePixelCount(Self.inputWidth), rowBytes: CVPixelBufferGetBytesPerRow(input))
+        return try body(v)
+    }
+
+    /// Scales a full camera frame into the detector input (vImageScale into the reused buffer).
     public func scale(from source: vImage_Buffer) {
-        var src = source, dst = frame.vImage
-        vImageScale_ARGB8888(&src, &dst, nil, vImage_Flags(kvImageNoFlags))
+        withInput { dst in
+            var src = source, d = dst
+            vImageScale_ARGB8888(&src, &d, nil, vImage_Flags(kvImageNoFlags))
+        }
     }
 
     /// Faces scoring at least 0.85 after NMS at IoU 0.3, largest first.
     public func detect() throws -> [DetectedFace] {
-        let n = Self.inputWidth * Self.inputHeight * 4
-        vDSP_vfltu8(frame.bytes, 1, input.dataPointer.assumingMemoryBound(to: Float.self), 1, vDSP_Length(n))
         guard let dets = try model.prediction(from: provider).featureValue(for: "dets")?.multiArrayValue else { return [] }
         return NonMaximumSuppression.apply(Self.parse(dets), iouThreshold: Self.nmsIoU).sorted { $0.box.area > $1.box.area }
     }

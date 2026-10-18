@@ -66,7 +66,7 @@ public final class FacePipeline: @unchecked Sendable {
         return FrameAnalysis(observation: a.observation, detectedFaces: a.detectedFaces, times: times)
     }
 
-    /// `detector.frame` is already filled. `toSource` maps detector output (640x480 frame pixels)
+    /// The detector input is already filled. `toSource` maps detector output (640x480 frame pixels)
     /// to `source` pixels, the buffer the crop is warped from.
     public func analyzePrepared(source: vImage_Buffer, toSource: (Point2D) -> Point2D, recognition: RecognitionContext?,
                                 options: AnalysisOptions = .runtime) throws -> FrameAnalysis {

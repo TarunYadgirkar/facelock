@@ -14,8 +14,10 @@ enum FixtureInputs {
         let frame = try cameraFrame(image)
         let a = try p.analyze(frame: frame.vImage, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true))
         guard let f = a.observation.faces.first else { throw BenchError("no face in \(image.path)") }
-        let det = p.detector.frame
-        try Data(bytes: det.data, count: det.rowBytes * det.height).write(to: out.appendingPathComponent("detector_320x240.bgra"))
+        try p.detector.withInput { v in
+            let rows = (0..<Int(v.height)).map { Data(bytes: v.data + $0 * v.rowBytes, count: Int(v.width) * 4) }
+            try rows.reduce(Data(), +).write(to: out.appendingPathComponent("detector_320x240.bgra"))
+        }
         try PixelBuffers.withVImage(p.aligner.crop) { v in
             let rows = (0..<112).map { Data(bytes: v.data + $0 * v.rowBytes, count: 112 * 4) }
             try rows.reduce(Data(), +).write(to: out.appendingPathComponent("crop_112.bgra"))

@@ -1,8 +1,9 @@
 """Build the two Core ML models FaceLock runs, from the pinned upstream files in models.lock.json.
 
   YuNet320x240.mlpackage  YuNet 2023mar with OpenCV's FaceDetectorYN decode inside the graph, fixed
-                          320x240 BGRA input (the 640x480 camera frame after a 2x vImageScale),
-                          output dets [1680, 15] = x, y, w, h, 5 landmarks, score in 640x480 pixels.
+                          320x240 BGR image input (Core ML reads the BGRA pixel buffer of the 640x480
+                          camera frame after a 2x vImageScale), output dets [1680, 15] = x, y, w, h,
+                          5 landmarks, score in 640x480 pixels.
   ArcFaceR50.mlpackage    InsightFace w600k_r50, 112x112 RGB image input, 512-float embedding.
 
 Both are fp16 ML Programs, so Core ML can schedule every op on the Neural Engine.
@@ -66,7 +67,11 @@ def r50_onnx(cache: Path, local: Path | None) -> Path:
 
 
 def yunet_with_decode(src: Path, dst: Path) -> None:
-    """uint8 BGRA [1,240,320,4] -> cast, NCHW, pad to /32 -> YuNet -> OpenCV FaceDetectorYN decode."""
+    """float BGR image [1,3,240,320] -> zero alpha plane, pad to /32 -> YuNet -> OpenCV FaceDetectorYN decode.
+
+    The first conv gets a zero-weight 4th input channel; the image input replaced an earlier
+    float32 [1,240,320,4] MLMultiArray input and gives bit-identical detections, all 132 ops on
+    the Neural Engine, without a CPU-side uint8 to float copy."""
     import onnx
     from onnx import TensorProto, helper, numpy_helper
 
@@ -85,11 +90,11 @@ def yunet_with_decode(src: Path, dst: Path) -> None:
             break
     else:
         sys.exit("YuNet: no conv reads the input")
-    pre = [helper.make_node("Cast", ["small"], ["f32"], to=TensorProto.FLOAT),
-           helper.make_node("Transpose", ["f32"], ["nchw"], perm=[0, 3, 1, 2]),
+    pre = [helper.make_node("Concat", ["image", "zero_alpha"], ["nchw"], axis=1),
            helper.make_node("Pad", ["nchw", "pads"], [old_in], mode="constant")]
     g.input.remove(g.input[0])
-    g.input.insert(0, helper.make_tensor_value_info("small", TensorProto.UINT8, [1, DET_H, DET_W, 4]))
+    g.input.insert(0, helper.make_tensor_value_info("image", TensorProto.FLOAT, [1, 3, DET_H, DET_W]))
+    g.initializer.append(const("zero_alpha", np.zeros((1, 1, DET_H, DET_W), np.float32)))
     for n in reversed(pre):
         g.node.insert(0, n)
     g.initializer.append(const("pads", np.array([0, 0, 0, 0, 0, 0, ph - DET_H, pw - DET_W], np.int64)))
@@ -146,27 +151,17 @@ def convert_yunet(fused: Path, dst: Path) -> None:
     from onnx2torch import convert
 
     torch.set_num_threads(2)
-    inner = convert(onnx.load(fused)).eval()
-
-    class FloatFrame(torch.nn.Module):
-        def __init__(self, net):
-            super().__init__()
-            self.net = net
-
-        def forward(self, frame):
-            return self.net(frame.to(torch.uint8))
-
-    model = FloatFrame(inner).eval()
-    x = torch.randint(0, 255, (1, DET_H, DET_W, 4), dtype=torch.uint8)
+    model = convert(onnx.load(fused)).eval()
+    x = torch.randint(0, 255, (1, 3, DET_H, DET_W)).to(torch.float32)
     with torch.no_grad():
-        t_out = model(x.to(torch.float32)).numpy()
-        traced = torch.jit.trace(model, x.to(torch.float32))
-    o_out = ort.InferenceSession(str(fused), providers=["CPUExecutionProvider"]).run(None, {"small": x.numpy()})[0]
+        t_out = model(x).numpy()
+        traced = torch.jit.trace(model, x)
+    o_out = ort.InferenceSession(str(fused), providers=["CPUExecutionProvider"]).run(None, {"image": x.numpy()})[0]
     print("YuNet torch vs onnx max abs diff", float(np.abs(t_out - o_out).max()))
-    mlm = ct.convert(traced, inputs=[ct.TensorType(name="frame", shape=(1, DET_H, DET_W, 4), dtype=np.float32)],
+    mlm = ct.convert(traced, inputs=[ct.ImageType(name="image", shape=(1, 3, DET_H, DET_W), color_layout=ct.colorlayout.BGR)],
                      outputs=[ct.TensorType(name="dets", dtype=np.float32)], convert_to="mlprogram",
                      compute_precision=ct.precision.FLOAT16, minimum_deployment_target=ct.target.macOS14)
-    mlm.short_description = "YuNet 2023mar, 320x240 BGRA, decode in graph, boxes in 640x480 pixels"
+    mlm.short_description = "YuNet 2023mar, 320x240 BGR image, decode in graph, boxes in 640x480 pixels"
     mlm.license = LOCK["yunet"]["license"]
     mlm.version = LOCK["yunet"]["sha256"][:12]
     mlm.save(str(dst))

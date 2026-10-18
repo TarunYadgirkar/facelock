@@ -14,20 +14,24 @@ final class LFWFramer {
 
     let pipeline: FacePipeline
     let full = BGRABuffer(width: LFWFramer.side, height: LFWFramer.side)
-    private let smallContext: CGContext
     private let fullContext: CGContext
 
     init(pipeline: FacePipeline) {
         self.pipeline = pipeline
-        smallContext = pipeline.detector.frame.context()
         fullContext = full.context()
     }
 
     func prepare(_ img: CGImage) {
         let w = FaceDetector.inputWidth, h = FaceDetector.inputHeight
-        smallContext.setFillColor(gray: 90 / 255, alpha: 1)
-        smallContext.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        smallContext.draw(img, in: CGRect(x: Self.offsetX, y: 0, width: 240, height: 240))
+        pipeline.detector.withInput { v in
+            let small = CGContext(data: v.data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: v.rowBytes,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+            small.interpolationQuality = .high
+            small.setFillColor(gray: 90 / 255, alpha: 1)
+            small.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            small.draw(img, in: CGRect(x: Self.offsetX, y: 0, width: 240, height: 240))
+        }
         fullContext.draw(img, in: CGRect(x: 0, y: 0, width: Self.side, height: Self.side))
     }
 
