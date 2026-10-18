@@ -16,11 +16,18 @@ public final class SystemEnvironment: WatchEnvironment, @unchecked Sendable {
     private let stayAwake = StayAwake()
     private let presenter: CountdownPresenter?
     private let sound: @Sendable () -> Bool
+    private var unlockObserver: NSObjectProtocol?
 
     public init(notifier: Notifier = Notifier(), presenter: CountdownPresenter?, sound: @escaping @Sendable () -> Bool) {
         self.notifier = notifier
         self.presenter = presenter
         self.sound = sound
+        unlockObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: nil) { [stayAwake] _ in stayAwake.end() }
+    }
+
+    deinit {
+        unlockObserver.map(DistributedNotificationCenter.default().removeObserver)
     }
 
     public func lock(completion: @escaping @Sendable (LockOutcome) -> Void) {
@@ -29,9 +36,6 @@ public final class SystemEnvironment: WatchEnvironment, @unchecked Sendable {
             completion(outcome)
         }
     }
-
-    /// The screen unlocked: let the Mac sleep normally again.
-    public func unlocked() { stayAwake.end() }
 
     public func secondsSinceInput() -> TimeInterval? { IdleTime.secondsSinceInput() }
 

@@ -53,6 +53,12 @@ public enum Notice: Equatable, Sendable {
     case someoneElseInView
     case lockFailed(LockOutcome)
     case stillFaceFlagged(observeOnly: Bool)
+
+    /// Posted even with notifications turned off in Settings.
+    public var isCritical: Bool {
+        if case .lockFailed = self { return true }
+        return false
+    }
 }
 
 public enum Phase: Equatable, Sendable {

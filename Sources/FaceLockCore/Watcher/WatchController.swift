@@ -118,7 +118,7 @@ public final class WatchController: @unchecked Sendable {
         case .startInputMonitor: environment.startInputMonitor { [weak self] in self?.send(.userInput) }
         case .stopInputMonitor: environment.stopInputMonitor()
         case .lock: environment.lock { [weak self] outcome in self?.send(.lockResult(outcome)) }
-        case let .notify(n): if state.settings.notify { environment.notify(n) }
+        case let .notify(n): if state.settings.notify || n.isCritical { environment.notify(n) }
         case let .record(r): telemetry?.record(r)
         case let .considerAdaptation(c): adapt(c)
         }

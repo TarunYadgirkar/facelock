@@ -50,6 +50,18 @@ public final class KeychainKeyStore: KeyStore, @unchecked Sendable {
     }
 }
 
+public enum KeyStores {
+    /// The login keychain for Developer ID builds; a 0600 file for ad-hoc DEBUG builds, whose
+    /// changing signature would make every keychain read prompt.
+    public static func standard() -> KeyStore {
+        #if DEBUG
+        FileKeyStore(url: EnrollmentStore.defaultURL.deletingLastPathComponent().appendingPathComponent("dev.key"))
+        #else
+        KeychainKeyStore()
+        #endif
+    }
+}
+
 /// Banners attributed to FaceLock. Needs a bundled app; a bare CLI gets nothing.
 public final class Notifier: @unchecked Sendable {
     public init() {}
