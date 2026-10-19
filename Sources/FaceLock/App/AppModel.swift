@@ -29,6 +29,7 @@ final class AppModel {
     @ObservationIgnored var pipeline: FacePipeline?
     @ObservationIgnored let camera = WatchCameraState()
     @ObservationIgnored private var countdownTicker: Timer?
+    @ObservationIgnored private var pendingGlyph: Task<Void, Never>?
     /// Setup screens holding the camera; the watcher pauses while any does.
     @ObservationIgnored private var setupHolders = 0
     /// Read by notifications on the watcher's queue, so it can't live on the main actor.
@@ -49,6 +50,9 @@ final class AppModel {
     var hasCamera = true
     var computePlans: [String: ComputePlanSummary] = [:]
     var countdownRemaining = 1.0
+    /// The menu bar icon. Kept apart from `state` so the status item redraws only when the shape
+    /// changes: every redraw costs about 9 ms of main-thread CPU (measured with Time Profiler).
+    private(set) var menuGlyph: MenuGlyph = .watching
     var demoPresent = true
     /// Dry-run and demo events, newest first.
     var notes: [String] = []
@@ -200,7 +204,28 @@ final class AppModel {
         state = s
         if pauseChanged { prefs.pause = s.pause }
         updateCountdownTicker()
+        updateGlyph()
         if newCameraFailure { cameraKeepsFailing(s.cameraFailures) }
+    }
+
+    /// A check that finds you within half a second never shows the Checking icon, so a present
+    /// check leaves the menu bar untouched; a longer one shows it.
+    static let checkingGlyphDelay: Duration = .milliseconds(500)
+
+    private func updateGlyph() {
+        let next = state.status(now: Date()).glyph
+        pendingGlyph?.cancel()
+        pendingGlyph = nil
+        guard next != menuGlyph else { return }
+        guard next == .checking else {
+            menuGlyph = next
+            return
+        }
+        pendingGlyph = Task { [weak self] in
+            try? await Task.sleep(for: Self.checkingGlyphDelay)
+            guard !Task.isCancelled, let self, self.state.status(now: Date()).glyph == .checking else { return }
+            self.menuGlyph = .checking
+        }
     }
 
     /// The menu glyph's ring drains only while a countdown is up: the one timer besides the watcher's.

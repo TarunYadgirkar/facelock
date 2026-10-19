@@ -1,0 +1,83 @@
+{
+ "after": {
+  "between_checks_cpu_percent_of_core": 0.01,
+  "checks": 9,
+  "cpu_j_per_hour": 2.67,
+  "cpu_percent_of_core": 0.0317,
+  "footprint_mb": {
+   "max": 32.1,
+   "mean": 30.9,
+   "n": 584,
+   "p50": 30.2,
+   "p95": 32.1
+  },
+  "frames_per_check": {
+   "max": 1,
+   "mean": 1,
+   "n": 9,
+   "p50": 1,
+   "p95": 1
+  },
+  "load_average": {
+   "after": "2.81 3.56 4.53",
+   "before": "5.35 4.33 5.15"
+  },
+  "pageins": 4,
+  "per_check_cpu_energy_mj": 18.9,
+  "per_check_cpu_ms": 7.2,
+  "per_check_user_ms": 1.4,
+  "resident_mb": {
+   "max": 89.5,
+   "mean": 41.8,
+   "n": 584,
+   "p50": 31.4,
+   "p95": 72.6
+  },
+  "seconds": 299.8,
+  "verdicts": {
+   "owner": 9
+  }
+ },
+ "before": {
+  "between_checks_cpu_percent_of_core": 0.0117,
+  "checks": 9,
+  "cpu_j_per_hour": 6.38,
+  "cpu_percent_of_core": 0.0678,
+  "footprint_mb": {
+   "max": 33,
+   "mean": 31.7,
+   "n": 584,
+   "p50": 31.9,
+   "p95": 32.2
+  },
+  "frames_per_check": {
+   "max": 1,
+   "mean": 1,
+   "n": 9,
+   "p50": 1,
+   "p95": 1
+  },
+  "load_average": {
+   "after": "5.68 4.29 5.16",
+   "before": "4.44 4.36 5.76"
+  },
+  "pageins": 5,
+  "per_check_cpu_energy_mj": 52.6,
+  "per_check_cpu_ms": 18.7,
+  "per_check_user_ms": 10.1,
+  "resident_mb": {
+   "max": 70,
+   "mean": 31.7,
+   "n": 584,
+   "p50": 31.4,
+   "p95": 38
+  },
+  "seconds": 299.9,
+  "verdicts": {
+   "owner": 9
+  }
+ },
+ "command": "swift build -c release --product facelock-bench && scripts/build-app.sh && .build/release/facelock-bench app --seconds 300",
+ "machine": "Apple M5 Pro, macOS 27.0.1, other jobs running (load averages recorded per run)",
+ "what": "FaceLock.app 0.5.1 on the demo camera (--demo-camera Tests/Fixtures/grace_hopper.jpg --demo-enrolled), Balanced, 300 s after a 40 s warmup, measured from outside with proc_pid_rusage every 0.5 s (facelock-bench app). 'before' redraws the menu bar status item on every watcher state change; 'after' only when the icon's shape changes."
+}

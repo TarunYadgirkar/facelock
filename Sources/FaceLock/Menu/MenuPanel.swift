@@ -150,8 +150,7 @@ struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let line = model.state.status(now: Date())
-        Image(nsImage: Glyphs.image(line.glyph, remaining: model.countdownRemaining))
-            .accessibilityLabel(Glyphs.description(line.glyph))
+        Image(nsImage: Glyphs.image(model.menuGlyph, remaining: model.countdownRemaining))
+            .accessibilityLabel(Glyphs.description(model.menuGlyph))
     }
 }
