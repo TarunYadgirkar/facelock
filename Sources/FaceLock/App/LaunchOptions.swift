@@ -1,5 +1,6 @@
 import FaceLockCore
 import FaceLockSystem
+import FaceLockVision
 import Foundation
 
 /// Command-line switches. `--demo-camera` swaps the camera for a stored image and always means a
@@ -55,6 +56,8 @@ struct AppPaths: Sendable, Equatable {
     let enrollment: URL
     let log: URL
     let key: Key
+    /// Where the downloaded recognizer lives: shared by every run except one with `--data-dir`.
+    var models = ModelLocator.installDirectory
 
     #if DEBUG
     static let isDebugBuild = true
@@ -91,7 +94,7 @@ struct AppPaths: Sendable, Equatable {
             : isDebugBuild ? .file(dir.appendingPathComponent("dev.key"))
             : .keychain(account: KeychainKeyStore.account(forDataDirectory: dir))
         return AppPaths(enrollment: dir.appendingPathComponent("enrollment.v2"), log: dir.appendingPathComponent("checks.jsonl"),
-                        key: key)
+                        key: key, models: o.dataDirectory ?? ModelLocator.installDirectory)
     }
 
     /// True for the release app's own files; Settings says when a run keeps its files elsewhere.

@@ -49,6 +49,7 @@ struct StatusText: Equatable {
         case .openCameraSettings: return "Turn On Camera Access"
         case .startEnrollment: return "Set Up FaceLock"
         case .reenroll: return "Set Up Again"
+        case .downloadModel: return "Download the Face Model…"
         }
     }
 }

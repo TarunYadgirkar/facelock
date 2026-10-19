@@ -46,6 +46,8 @@ final class AppModel {
     var notificationAccess: NotificationAccess = .unavailable
     var legacy = LegacyInstall()
     var engine: EngineState = .loading
+    var recognizer: RecognizerState = .needed
+    @ObservationIgnored var recognizerInstaller: RecognizerInstaller?
     var cameraAccess: CameraAccess = .notDetermined
     var hasCamera = true
     var computePlans: [String: ComputePlanSummary] = [:]
@@ -112,6 +114,7 @@ final class AppModel {
             watchForCameraArrivals()
             Task { await askForNotificationsAtLaunch() }
         }
+        recognizer = modelLocator.hasRecognizer ? .installed : .needed
         powerMonitor = PowerMonitor { [weak self] battery in
             self?.controller.send(.powerSourceChanged(onBattery: battery))
             self?.systemEnvironment?.powerSourceChanged(onBattery: battery)
@@ -141,8 +144,18 @@ final class AppModel {
         }
     }
 
-    private func loadEngine() async {
-        let locator = ModelLocator()
+    var modelLocator: ModelLocator { ModelLocator(installed: paths.models) }
+
+    func loadEngine() async {
+        let locator = modelLocator
+        guard locator.hasRecognizer else {
+            // Nothing to load until the owner accepts the licence and downloads the recognizer.
+            engine = .failed
+            refreshBlock()
+            return
+        }
+        engine = .loading
+        refreshBlock()
         let loaded = await Task.detached(priority: .userInitiated) { () -> FacePipeline? in
             locator.isAvailable ? try? FacePipeline(models: locator) : nil
         }.value

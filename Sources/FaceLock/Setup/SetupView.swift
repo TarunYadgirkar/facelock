@@ -24,6 +24,7 @@ struct SetupView: View {
         switch flow.step {
         case .welcome: WelcomeStep(flow: flow)
         case .before: BeforeStep(flow: flow)
+        case .model: ModelStep(flow: flow)
         case .camera: CameraStep(flow: flow)
         case .face: FaceStep(flow: flow)
         case .result: ResultStep(flow: flow)
@@ -190,6 +191,24 @@ private struct BeforeStep: View {
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(flow.model.legacy.runningPID != nil)
+        }
+    }
+}
+
+private struct ModelStep: View {
+    let flow: SetupFlow
+
+    var body: some View {
+        StepPage(title: "Download the face model",
+                 lead: "FaceLock recognizes you with ArcFace r50, a model trained by InsightFace. It's downloaded once, "
+                    + "straight from InsightFace, before you show FaceLock your face.") {
+            ModelDownloadView()
+        } actions: {
+            Button("Back") { flow.back() }.buttonStyle(SecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+            Button("Continue") { flow.next() }
+                .buttonStyle(PrimaryButtonStyle())
+                .keyboardShortcut(.defaultAction)
+                .disabled(flow.model.recognizer != .installed || flow.model.engine != .ready)
         }
     }
 }

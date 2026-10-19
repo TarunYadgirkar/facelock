@@ -17,7 +17,7 @@ public enum MenuGlyph: Equatable, Sendable {
 }
 
 public enum StatusFix: String, Sendable {
-    case openCameraSettings, startEnrollment, reenroll
+    case openCameraSettings, startEnrollment, reenroll, downloadModel
 }
 
 public struct StatusLine: Equatable, Sendable {
@@ -34,7 +34,8 @@ extension WatcherState {
             case .cameraAccessOff: .openCameraSettings
             case .noEnrollment: .startEnrollment
             case .needsReenroll: .reenroll
-            case .noCamera, .modelsMissing, .starting, .keyUnavailable: nil
+            case .modelsMissing: .downloadModel
+            case .noCamera, .starting, .keyUnavailable: nil
             }
             return StatusLine(tone: .critical, text: "Not protecting: \(reason.text)", glyph: .notProtecting, fix: fix)
         }

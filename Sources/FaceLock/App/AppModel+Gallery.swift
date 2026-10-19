@@ -112,7 +112,8 @@ extension AppModel {
     }
 
     func makeSetupPipeline() async throws -> FacePipeline {
-        try await Task.detached(priority: .userInitiated) { try FacePipeline() }.value
+        let locator = modelLocator
+        return try await Task.detached(priority: .userInitiated) { try FacePipeline(models: locator) }.value
     }
 
     // MARK: demo
@@ -129,8 +130,9 @@ extension AppModel {
     /// Enrolls the demo photo the way onboarding would, from jittered views of it.
     func enrollDemoFace() async {
         guard payload == nil, let url = options.demoCamera else { return }
+        let locator = modelLocator
         let templates = await Task.detached(priority: .userInitiated) { () -> [Template] in
-            guard let r = try? DemoRenderer(url: url), let p = try? FacePipeline() else { return [] }
+            guard let r = try? DemoRenderer(url: url), let p = try? FacePipeline(models: locator) else { return [] }
             return DemoEnrollment.make(renderer: r, pipeline: p)
         }.value
         if !templates.isEmpty { _ = try? completeEnrollment(templates) }

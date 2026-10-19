@@ -54,6 +54,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
                 .padding(Space.xl).frame(width: 680, height: 460))
     }
 
+    func openModelDownload() {
+        show(id: "model", title: "Download the Face Model", content: ModelDownloadWindow { [weak self] in self?.close("model") })
+    }
+
     func performFix(_ fix: StatusFix) {
         guard let model else { return }
         switch fix {
@@ -61,6 +65,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             if model.cameraAccess == .notDetermined { openSetup(at: .camera) } else { model.openCameraSettings() }
         case .startEnrollment: openSetup()
         case .reenroll: openSetup(at: .face)
+        case .downloadModel: if model.isEnrolled { openModelDownload() } else { openSetup() }
         }
     }
 

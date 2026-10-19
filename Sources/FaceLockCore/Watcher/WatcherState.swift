@@ -51,7 +51,7 @@ public enum NotProtectingReason: String, Codable, Sendable {
         case .noCamera: return "no camera found"
         case .noEnrollment: return "FaceLock doesn't know your face yet"
         case .needsReenroll: return "your saved face can't be read, set it up again"
-        case .modelsMissing: return "face models are missing"
+        case .modelsMissing: return "the face model isn't downloaded yet"
         case .keyUnavailable: return "FaceLock can't read its key from the keychain yet"
         case .starting: return "starting up"
         }

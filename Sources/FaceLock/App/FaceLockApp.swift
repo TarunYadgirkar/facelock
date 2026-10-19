@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let needsSetup = !Self.model.isEnrolled && Self.model.storeLoad != .keyUnavailable && !options.demoEnrolled
             if options.showSetup || needsSetup {
                 Self.windows.openSetup()
+            } else if Self.model.recognizer == .needed {
+                Self.windows.openModelDownload()
             }
         }
     }
