@@ -55,7 +55,7 @@ final class DryRunAppEnvironment: WatchEnvironment, @unchecked Sendable {
 
     func lock(completion: @escaping @Sendable (LockOutcome) -> Void) {
         note("Dry run: FaceLock would have locked the screen at \(Date().formatted(date: .omitted, time: .standard)).")
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.2) { completion(.locked) }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.2) { completion(.dryRun) }
     }
 
     func secondsSinceInput() -> TimeInterval? { IdleTime.secondsSinceInput() }

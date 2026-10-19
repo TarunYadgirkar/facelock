@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.1, 2026-10-18: audit fixes
+
+### Fixed
+
+- A camera that sends no frame (suspended, dead, slow to open or failing at runtime) no longer counts as you being away. Such a check is logged as `camera_failed`, retried with backoff, never leads to a countdown or a lock, and after two in a row the menu says the camera isn't responding while FaceLock rebuilds its camera session.
+- The settle cap and the window length count from the camera's first frame, so a slow camera open no longer shortens the look. Frame analysis errors are logged instead of dropped.
+- Camera availability comes from the watcher's own camera only. Launching with the lid closed is now seen at once, AirPods and other audio devices no longer override a suspended camera, and an unplugged camera gets a new session when it comes back.
+- Frames that aren't 640x480 are asked for at 640x480 and centre-cropped to 4:3 instead of stretched. The frame size is in the log.
+- A timed pause ends on time even when the Mac sleeps through its end. "Until I unlock" no longer survives a restart or logout. "Until tomorrow" now means the next 6:00 AM and the menu shows the date.
+- Waking the display or the Mac starts a check at once instead of after a full interval.
+- After a lock that failed (or a dry run's pretend lock) the menu says "Looking for you", not "Watching".
+- A keychain that refuses the key for a moment no longer asks you to set up again, and FaceLock never replaces an existing key. Development builds and `--data-dir` runs keep their own key, so they can never overwrite or delete the real one.
+- The check log keeps no record longer than 30 days.
+- Two setup screens open at once keep the watcher paused until both close.
+- Stay-awake after a lock drops as soon as the Mac switches to battery.
+- No crash when no screen is attached.
+
+### Changed
+
+- The countdown says "Look at the camera to stay unlocked. Moving the mouse gives FaceLock one more look.", and shows "Checking for you…" during that look.
+- The menu pill says "Watching", not "Protected". The "not protecting" icon's slash no longer looks like the full-screen arrows.
+- Setup asks for notifications with the reason, and Settings shows when they are off. Start at login says what to do when macOS refuses (move FaceLock to Applications).
+- Clearer words in setup and Settings: the camera lead no longer quotes an unmeasured time, pose names match everywhere, the glasses look says what to do, threshold names are spelled out, the weekly summary lists failed locks, and the old face data is called what it is: unencrypted, and readable in the Trash until you empty it.
+- Stop buttons during the timed captures, Escape for Back, Skip and Cancel, VoiceOver announcements during enrollment.
+- `scripts/check-no-biometrics.sh` also refuses `.f16`, `.bin`, `.pt`, `.safetensors`, enrollment files, keys and check logs.
+- `facelock-bench app` measures the shipping app; `scripts/bench.sh` records the load average with every result and gates the app too.
+
 ## 0.5.0, 2026-10-18: the native rebuild
 
 FaceLock is now a Swift menu bar app. Core ML runs both models on the Neural Engine, and nothing needs a terminal.
