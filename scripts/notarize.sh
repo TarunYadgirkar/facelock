@@ -9,7 +9,7 @@ set -euo pipefail
 # weights reach the app; each user downloads them from InsightFace on first run. YuNet (MIT) is bundled,
 # with its notice in THIRD_PARTY_NOTICES.txt. See README > Licences.
 #
-# One-time setup on this Mac (FaceLock shares herd's team and Apple ID, so herd's stored profile works):
+# One-time setup on this Mac. The notary profile belongs to the Apple developer account, not to one app, so any saved profile for team 5AKJYZ7USP works (herd-notary is the one on this Mac):
 #   1. Xcode > Settings > Accounts > Manage Certificates > + > Developer ID Application
 #   2. xcrun notarytool store-credentials herd-notary --apple-id <apple id> --team-id 5AKJYZ7USP
 #      (asks for an app-specific password from account.apple.com)
