@@ -13,3 +13,4 @@ bench/out/
 *.onnx
 __pycache__/
 .venv/
+*.egg-info/

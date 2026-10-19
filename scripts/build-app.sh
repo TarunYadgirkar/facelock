@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds build/FaceLock.app: the release binary, both Core ML models compiled from models/*.mlpackage
-# (python -I tools/convert_models.py makes them), the icon and the accent colour, signed for this team.
+# Builds build/FaceLock.app: the release binary, YuNet compiled from models/YuNet320x240.mlpackage, the
+# r50 recognizer WITHOUT its weights (ArcFaceR50.skeleton plus Resources/ArcFaceR50.layout.json; the app
+# downloads the weights from InsightFace and rebuilds weight.bin on the user's Mac), the icon and the
+# accent colour, signed for this team. python -I tools/convert_models.py makes models/.
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/FaceLock.app"
 TEAM_ID="5AKJYZ7USP"
-MODELS=(YuNet320x240 ArcFaceR50)
+MODELS=(YuNet320x240)
+RECOGNIZER=ArcFaceR50
+LAYOUT="Resources/$RECOGNIZER.layout.json"
 
 # Developer ID can be notarized and shipped; Apple Development runs on this Mac; ad-hoc runs here only,
 # and an ad-hoc build loses its camera permission and keychain access on every rebuild.
@@ -34,7 +38,7 @@ signing_identity() {
 }
 
 cd "$ROOT"
-for m in "${MODELS[@]}"; do
+for m in "${MODELS[@]}" "$RECOGNIZER"; do
   [[ -d "models/$m.mlpackage" ]] || { echo "models/$m.mlpackage is missing. Run: python -I tools/convert_models.py" >&2; exit 1; }
 done
 
@@ -51,6 +55,23 @@ xcrun actool Resources/Assets.xcassets --compile "$APP/Contents/Resources" \
 for m in "${MODELS[@]}"; do
   xcrun coremlcompiler compile "models/$m.mlpackage" "$APP/Contents/Resources" >/dev/null
 done
+cp Resources/THIRD_PARTY_NOTICES.txt "$APP/Contents/Resources/"
+
+# The recognizer ships as its compiled graph only. The layout must describe exactly the weight.bin this
+# skeleton was compiled with, or the app's rebuilt model would not match the tested one.
+COMPILED="$(mktemp -d)"
+trap 'rm -rf "$COMPILED"' EXIT
+xcrun coremlcompiler compile "models/$RECOGNIZER.mlpackage" "$COMPILED" >/dev/null
+want="$(plutil -extract weights.sha256 raw -o - "$LAYOUT")"
+got="$(shasum -a 256 "$COMPILED/$RECOGNIZER.mlmodelc/weights/weight.bin" | cut -d' ' -f1)"
+[[ "$got" == "$want" ]] || { echo "$LAYOUT is stale (weight.bin $got, layout $want). Run: python -I tools/convert_models.py" >&2; exit 1; }
+rm -rf "$COMPILED/$RECOGNIZER.mlmodelc/weights"
+cp -R "$COMPILED/$RECOGNIZER.mlmodelc" "$APP/Contents/Resources/$RECOGNIZER.skeleton"
+cp "$LAYOUT" "$APP/Contents/Resources/"
+
+# Licence guard: no r50 weights in any form may reach the app (and so the DMG).
+leaked="$(find "$APP" \( -name 'weight.bin' -path "*$RECOGNIZER*" -o -name '*.onnx' -o -name "$RECOGNIZER.mlmodelc" -o -name '*.mlpackage' \) -print)"
+[[ -z "$leaked" ]] || { echo "Refusing to ship r50 weights: $leaked" >&2; exit 1; }
 
 IDENTITY="$(signing_identity)"
 SIGN_FLAGS=(--force --sign "$IDENTITY" --entitlements Resources/FaceLock.entitlements)

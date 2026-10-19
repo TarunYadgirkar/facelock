@@ -4,8 +4,10 @@ set -euo pipefail
 # Builds FaceLock with a Developer ID signature, sends it to Apple's notary service, staples the ticket,
 # and leaves build/FaceLock.dmg (drag FaceLock into Applications). Other Macs then open it without a Gatekeeper warning.
 #
-# Licence: the DMG bundles the InsightFace w600k_r50 weights, which are for non-commercial research only.
-# A personal or private copy is fine; publishing the DMG redistributes them. See README > Licences.
+# Licence: the DMG holds no InsightFace w600k_r50 weights (non-commercial research only), so it can be
+# published. build-app.sh ships the recognizer's graph without weights and refuses to build if any r50
+# weights reach the app; each user downloads them from InsightFace on first run. YuNet (MIT) is bundled,
+# with its notice in THIRD_PARTY_NOTICES.txt. See README > Licences.
 #
 # One-time setup on this Mac (FaceLock shares herd's team and Apple ID, so herd's stored profile works):
 #   1. Xcode > Settings > Accounts > Manage Certificates > + > Developer ID Application
