@@ -16,7 +16,7 @@ It ships in Observe mode. Count its flags in the log while you work normally; sw
 
 ## 4. A recognizer you can redistribute
 
-The InsightFace r50 weights are for non-commercial research only. A private DMG is fine; a public release that bundles them redistributes them. Bake off a permissively licensed recognizer with `facelock-bench accuracy` before any public DMG.
+The InsightFace r50 weights are for non-commercial research only, so the public DMG ships without them and each user downloads them from InsightFace on first run (2.0). A permissively licensed recognizer, baked off with `facelock-bench accuracy`, would remove that download and the licence question for anyone who wants to use FaceLock commercially.
 
 ## 5. Photo and screen replays (experimental)
 

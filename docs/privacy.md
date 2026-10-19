@@ -2,6 +2,8 @@
 
 Nothing leaves your Mac, and no camera frame is ever saved. Frames live in memory for the few milliseconds a check takes.
 
+FaceLock uses the network once: during setup, after you accept InsightFace's licence, it downloads `buffalo_l.zip` from InsightFace's GitHub release to get the face model. That request carries nothing about you, and FaceLock makes no other network request.
+
 ## What is stored
 
 | File | Contents | Protection |

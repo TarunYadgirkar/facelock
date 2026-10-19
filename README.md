@@ -21,7 +21,7 @@ FaceLock lives in the menu bar. At each check it turns the camera on, looks for 
 
 The worst case counts a full interval, every recheck at its longest and a 10 s countdown, plus the time the camera takes to send its first frame. On the demo camera, a Balanced run locked about 53 s after the photo left.
 
-Each look runs two models on the Neural Engine: YuNet finds faces and five landmarks, and ArcFace r50 turns an aligned crop into 512 numbers that are compared with your enrolled looks. A face that is too small, tilted, turned away, cut off, dark or blurry is "unclear", never "stranger", and follows the same cadence as an empty room, so a badly posed owner is never locked faster than an absent one. Only a clear face that scores like nobody you know, in 2 frames of one check, gets the faster recheck.
+Each look runs two models on the Neural Engine: YuNet finds faces and five landmarks, and ArcFace r50 (downloaded once from InsightFace, see [Install](#install)) turns an aligned crop into 512 numbers that are compared with your enrolled looks. A face that is too small, tilted, turned away, cut off, dark or blurry is "unclear", never "stranger", and follows the same cadence as an empty room, so a badly posed owner is never locked faster than an absent one. Only a clear face that scores like nobody you know, in 2 frames of one check, gets the faster recheck.
 
 A camera that sends no frame (lid closed, unplugged, suspended, failing) is never taken for an empty room: that check is retried with backoff, can never lead to a lock, and after two in a row the menu says "Not protecting: the camera isn't responding" while FaceLock rebuilds its camera session. Nothing runs while the screen is locked, the display or the Mac is asleep, or FaceLock is paused, and nothing polls. When the display wakes, a check runs at once.
 
@@ -33,13 +33,17 @@ Every rule, with the numbers behind it: [docs/how-it-decides.md](docs/how-it-dec
 
 ## Install
 
-You need macOS 15 or later on Apple silicon, and a camera (built in, or an external webcam).
+You need macOS 15 or later on Apple silicon, a camera (built in, or an external webcam), an internet connection for the first run, and about 550 MB of free disk space during setup (260 MB once it's done).
 
-There is no public download: the recognizer's weights are licensed for non-commercial research only, so a public DMG would redistribute them (see [Licences](#licences)). Build the app yourself (see [Build from source](#build-from-source)), or, with a Developer ID, make a notarized disk image with `scripts/notarize.sh`.
+**Download: [FaceLock.dmg](https://github.com/TarunYadgirkar/facelock/releases/latest/download/FaceLock.dmg)** (5 MB, signed with a Developer ID and notarized by Apple, so it opens without a Gatekeeper warning). Every version is on the [releases page](https://github.com/TarunYadgirkar/facelock/releases).
 
-1. Open `FaceLock.dmg` and drag FaceLock into Applications, or copy `build/FaceLock.app` there (`scripts/build-app.sh --install` does it). Run it from Applications: macOS refuses Start at login for an app run from Downloads or from the disk image.
-2. Open FaceLock. The setup window appears, and macOS asks once for the camera.
-3. On the last step, choose **Allow Notifications**, so a lock that fails can reach you, and turn on **Start at login**. If macOS says the login item needs approval, approve it in System Settings > General > Login Items.
+1. Open `FaceLock.dmg` and drag FaceLock into Applications. Run it from Applications: macOS refuses Start at login for an app run from Downloads or from the disk image.
+2. Open FaceLock. The setup window appears.
+3. **Face model.** FaceLock recognizes you with ArcFace r50 from InsightFace, whose weights are licensed for non-commercial research only, so they aren't in the DMG. Setup shows that licence; tick the box to accept it and choose **Download 289 MB**. FaceLock then downloads InsightFace's own `buffalo_l.zip` from [its GitHub release](https://github.com/deepinsight/insightface/releases/tag/v0.7), checks its SHA-256, keeps only `w600k_r50.onnx` (174 MB) in `~/Library/Application Support/FaceLock/`, deletes the rest, and builds its Core ML model (87 MB) next to it. The rebuilt model is checked against a pinned SHA-256, so it is byte for byte the model the numbers below were measured with. It takes a few minutes on a typical connection; if the download fails, setup says why and offers **Try Again**. This is the only time FaceLock uses the network.
+4. **Camera.** macOS asks once for the camera, then setup teaches FaceLock your face.
+5. On the last step, choose **Allow Notifications**, so a lock that fails can reach you, and turn on **Start at login**. If macOS says the login item needs approval, approve it in System Settings > General > Login Items.
+
+Updating from 0.5 or earlier (which bundled the weights): the new version opens the same download window once, and your enrollment and settings stay as they are.
 
 ## Setup
 
@@ -94,7 +98,7 @@ Single measurements: `.build/release/facelock-bench latency --lfw bench/data/lfw
 
 ## Privacy
 
-Nothing leaves the Mac and no camera frame is saved. FaceLock keeps two files:
+Nothing leaves the Mac and no camera frame is saved. The only network request FaceLock ever makes is the one-time download of the face model from InsightFace's GitHub release, and it sends nothing about you. FaceLock keeps two files about you:
 
 - `~/Library/Application Support/FaceLock/enrollment.v2`: your face templates (lists of 512 numbers, not pictures) and your thresholds with their history, encrypted with AES-GCM. The key is in your login keychain, which FaceLock reads without a prompt while you're logged in. File mode 0600, and Time Machine skips it.
 - `~/Library/Logs/FaceLock/checks.jsonl`: one line per check with camera time, frame size, scores, quality flags and the verdict. No images and no templates. Rotated at 5 MB; no line is kept longer than 30 days.
@@ -125,21 +129,24 @@ macOS does not keep login keychain items to one Mac, so Migration Assistant can 
 
 ```sh
 python3.12 -m venv .venv-tools && .venv-tools/bin/pip install -r tools/requirements.lock.txt
-.venv-tools/bin/python -I tools/convert_models.py   # models/*.mlpackage and .mlmodelc from pinned upstream files
+.venv-tools/bin/python -I tools/convert_models.py   # models/*.mlpackage and .mlmodelc from pinned upstream files, and Resources/ArcFaceR50.layout.json
 swift test                     # Vision tests skip with a message when models/ is absent
-scripts/build-app.sh           # build/FaceLock.app, signed with your Developer ID when you have one; --install copies it to /Applications
+scripts/build-app.sh           # build/FaceLock.app without the r50 weights, signed with your Developer ID when you have one; --install copies it to /Applications
 scripts/notarize.sh            # build/FaceLock.dmg, notarized and stapled (see the top of the script)
+.build/release/facelock-bench assemble --zip buffalo_l.zip --out DIR   # what the app does on first run, from the command line
 scripts/screenshots.sh         # the images on this page, from the demo camera only
 scripts/install-hooks.sh       # once per clone: a pre-commit hook that refuses face data, models, logs and stray images
 ```
 
-`tools/requirements.lock.txt` pins the conversion environment (Python 3.12, torch, coremltools 9.0) and `tools/models.lock.json` pins the upstream model files by sha256. The Python version is kept at the tag `python-0.4.0`.
+`tools/requirements.lock.txt` pins the conversion environment (Python 3.12, torch, coremltools 9.0) and `tools/models.lock.json` pins the upstream model files by sha256.
+
+The app ships the r50 model's compiled graph without `weights/weight.bin` (`ArcFaceR50.skeleton`) and `ArcFaceR50.layout.json`, which lists, for each of the 237 blobs in `weight.bin`, its offset, the ONNX initializer it comes from and how coremltools cast it (fp16, fp16 keeping tiny values nonzero, or fp32). It holds names, offsets and hashes, never weights. On first run the app reads those initializers out of `w600k_r50.onnx`, writes `weight.bin`, and accepts it only if it hashes to the pinned value. `build-app.sh` refuses to build if any r50 weights would end up in the app. The Python version is kept at the tag `python-0.4.0`.
 
 | Module | What it does |
 |---|---|
 | `FaceLock` | The menu bar app: setup, the countdown panel, Settings, Teach, migration from the Python version |
 | `FaceLockCore` | The watcher state machine, cadence presets, verdict rules, scoring, calibration, learning safeguards, the still-face check, the encrypted store, the log. No AppKit or AVFoundation |
-| `FaceLockVision` | YuNet and ArcFace r50 on Core ML, the vImage scale, crop and warp, crop light and sharpness |
+| `FaceLockVision` | YuNet and ArcFace r50 on Core ML, the r50 download and rebuild, the vImage scale, crop and warp, crop light and sharpness |
 | `FaceLockCapture` | The camera session and its availability, the exposure-settle gate and frame pacing, the stored-image camera |
 | `FaceLockSystem` | The lock with confirmation, session state, idle time, sleep and wake, the login item, notifications, Touch ID, the keychain |
 | `facelock-bench` | The benchmark harness, including `app`, which measures the shipping app |
@@ -152,8 +159,8 @@ After `scripts/build-app.sh`:
 build/FaceLock.app/Contents/MacOS/FaceLock --demo-camera Tests/Fixtures/grace_hopper.jpg --demo-enrolled
 ```
 
-The demo camera shows a stored public-domain photo, never locks, and keeps its files in a temporary folder with its key in memory. The menu gets "Take the Photo Away" to walk through the rechecks and the countdown. `--dry-run` instead watches with your real camera and enrollment and logs the lock instead of locking. `--data-dir <folder>` keeps a run's enrollment and log in that folder, with a key of its own.
+The demo camera shows a stored public-domain photo, never locks, and keeps its files in a temporary folder with its key in memory. The menu gets "Take the Photo Away" to walk through the rechecks and the countdown. `--dry-run` instead watches with your real camera and enrollment and logs the lock instead of locking. `--data-dir <folder>` keeps a run's enrollment, log and downloaded face model in that folder, with a key of its own. The demo needs the face model too: without `--data-dir` it uses the one in `~/Library/Application Support/FaceLock/`.
 
 ## Licences
 
-The code is MIT licensed ([LICENSE](LICENSE)). YuNet is MIT (opencv_zoo). The InsightFace r50 weights are for non-commercial research only: the repository holds no weights, but the app and the DMG bundle them, so a personal copy is fine and publishing a DMG redistributes them.
+The code is MIT licensed ([LICENSE](LICENSE)). YuNet is MIT (opencv_zoo) and ships in the app, with its notice in `THIRD_PARTY_NOTICES.txt`. The InsightFace r50 weights are for [non-commercial research purposes only](https://github.com/deepinsight/insightface#license). Neither the repository, the app, the DMG nor a release asset contains them in any form: each user downloads them from InsightFace after accepting that licence in setup, and FaceLock builds its Core ML model from them on that Mac.
