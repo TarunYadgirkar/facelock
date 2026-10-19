@@ -6,12 +6,20 @@ FaceLock is a walk-away lock. It never unlocks anything. Every check turns the c
 
 A check is a camera window:
 
-1. The camera starts. Frames are thrown away until exposure and white balance stop adjusting and the picture is bright enough (mean luma at least 40), for at most 0.6 s.
+1. The camera starts. Frames are thrown away until exposure and white balance stop adjusting and the picture is bright enough (mean luma at least 40), for at most 0.6 s after the first frame arrives.
 2. Frames are then processed no closer than 100 ms apart.
 3. The first frame that shows you ends the window at once and the camera stops.
 4. Otherwise the window ends after 1.5 s of settled frames or 6 processed frames (2.0 s for a recheck).
 
+The settle cap and the window length count from the camera's first frame, so a camera that is slow to open never shortens the look. FaceLock asks the camera for 640x480. If a camera sends another shape anyway (16:9, say), the middle 4:3 of the frame is used, never a stretched frame, so your face has the proportions it was enrolled with. The frame size goes into the log.
+
 Each processed frame runs YuNet (face boxes and five points), a quality gate, alignment to the ArcFace template, and ArcFace r50, all on the Neural Engine.
+
+## When the camera fails
+
+A window whose camera sends no frame within 3 s, or whose every frame fails analysis, says nothing about you. It is logged as `camera_failed`, counts as neither a miss nor an empty room, and can never lead to a countdown or a lock. The check is retried after 2.5 s, then 5, 10, 20, 40 and every 60 s. After two in a row the menu says "Not protecting: the camera isn't responding", and FaceLock rebuilds its camera session (again every third failure after that). A rebuilt session counts as working only once it has delivered a frame.
+
+The camera FaceLock watches with is the built-in one, or any other connected camera when the built-in one is suspended (lid closed). Its own connection and suspension decide whether it is available; audio devices coming and going (AirPods) change nothing. A camera that is unplugged and plugged back in gets a new session, since the old one's input is dead.
 
 ## What a frame can say
 
@@ -51,11 +59,17 @@ stateDiagram-v2
 | Balanced | 30 s | 10 s, 5 s | 5 s | 3 | 62 s |
 | Strict | 15 s | 6 s | 2 s | 2 | 36 s |
 
-The worst case adds a full interval, every recheck, every window at its time cap, and a 10 s countdown. With a camera that delivers frames at normal speed the windows end after 6 frames, and a Balanced run in `facelock-bench dry-run --leave-after 5` locked 54 s after the scene emptied.
+The worst case adds a full interval, every recheck, every window at its time cap, and a 10 s countdown; the time the camera takes to open its first frame comes on top of each window. With a camera that delivers frames at normal speed the windows end after 6 frames, and a Balanced run in `facelock-bench dry-run --leave-after 5` locked 54 s after the scene emptied.
 
-The countdown keeps the camera on at about 4 frames a second. Your face cancels it. Any other face, a key press, a mouse move or "I'm here" also cancels it, but forces one more full check: if that check does not see you, the Mac locks with no second countdown. Someone at the keyboard can delay a lock once and cannot cancel it indefinitely. Every cancel is logged with its cause.
+The countdown keeps the camera on at about 4 frames a second. Your face cancels it. Any other face, a key press, a mouse move or "I'm here" also stops it, but only to take one more full look: the panel says "Checking for you…", and if that check does not see you, the Mac locks with no second countdown. Someone at the keyboard can delay a lock once and cannot cancel it indefinitely. Every cancel is logged with its cause.
 
-Nothing runs while the screen is locked, the display or the Mac is asleep, the camera is unavailable, or FaceLock is paused. These come from system notifications; nothing polls.
+If the lock call fails, FaceLock puts the display to sleep, posts a notification (always, even with notifications turned off in Settings) and goes on looking for you: the menu says "Lock failed. Looking for you", never "Watching".
+
+Nothing runs while the screen is locked, the display or the Mac is asleep, the camera is unavailable, or FaceLock is paused. These come from system notifications; nothing polls. When the display or the Mac wakes, a check runs at once, so whoever wakes an unattended Mac starts the normal miss and countdown sequence straight away instead of a full interval later.
+
+## Pauses
+
+Pause for 15 minutes, 1 hour, until you unlock, or until tomorrow morning (the next 6:00 AM). Timed pauses run on the wall clock, so one that ends while the Mac sleeps is over when it wakes. "Until I unlock" ends at the next unlock and does not survive a restart or a logout: FaceLock starts after you log in, so the unlock it waited for has already happened.
 
 ## Thresholds
 
