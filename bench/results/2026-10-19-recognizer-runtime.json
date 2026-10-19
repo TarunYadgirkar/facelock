@@ -1,0 +1,271 @@
+{
+ "date": "2026-10-19",
+ "machine": "Apple M5 Pro, macOS 27.0.1",
+ "load_average_1min": "5.8 at the start, 1.6 at the end",
+ "method": "Embedding alone on aligned 112x112 crops from the camera path: grace_hopper plus the first image of the first 199 LFW people (200 crops). cosine_vs_current compares each candidate with the 0.5 Core ML model's embedding of the same crop. embed_ms over 300 runs on the grace_hopper crop after 20 warm-up runs; CPU time and ri_energy_nj over those runs; after_idle is one embed after 20 s idle, 3 times. ORT and MPSGraph include the BGRA to normalized NCHW float conversion on the CPU; Core ML takes the pixel buffer. Each candidate in its own process. Harness: a scratch Swift package linking FaceLockVision, with facelock-bench's Usage counters.",
+ "app_size": {
+  "0.5 app with bundled r50": "88 MB",
+  "2.0 app (Core ML rebuilt on first run)": "5.1 MB",
+  "onnxruntime 1.24.2 static library added to a binary": "about +31 MB (34.0 MB scratch binary vs 2.3 MB facelock-bench), plus the 174 MB ONNX file at runtime"
+ },
+ "rebuild": {
+  "from w600k_r50.onnx": "0.59 s wall, 234 ms CPU, peak footprint 127 MB",
+  "from buffalo_l.zip (inflate w600k_r50.onnx, then rebuild)": "0.81 s wall, 783 ms CPU, peak footprint 129 MB",
+  "result": "ArcFaceR50.mlmodelc identical to the 0.5 model (diff -r), weight.bin sha256 aa08d782...f492"
+ },
+ "facelock_bench_latency_camera_path": {
+  "bundled": {
+   "total_ms_mean": 1.949,
+   "total_ms_p95": 2.326,
+   "embed_ms_mean": 1.288,
+   "cpu_ms_per_frame": 0.892,
+   "cpu_energy_mj_per_frame": 3.477,
+   "cold_wall_ms_mean": 62.6
+  },
+  "rebuilt": {
+   "total_ms_mean": 1.868,
+   "total_ms_p95": 1.922,
+   "embed_ms_mean": 1.23,
+   "cpu_ms_per_frame": 0.84,
+   "cpu_energy_mj_per_frame": 3.75,
+   "cold_wall_ms_mean": 63.3
+  },
+  "note": "facelock-bench latency --frames 300 and cold --runs 4, load average 1.4 to 3.7"
+ },
+ "candidates": [
+  {
+   "candidate": "coreml-bundled (0.5, models/ArcFaceR50.mlmodelc)",
+   "cosine_vs_current": {
+    "grace_hopper": 1.0000001192092896,
+    "mean": 0.9999997329711914,
+    "min": 0.9999986886978149
+   },
+   "load_ms": 133.517,
+   "load_cpu_ms": 51.051,
+   "first_embed_ms": 4.668,
+   "embed_ms": {
+    "mean": 1.258,
+    "p50": 1.255,
+    "p95": 1.292
+   },
+   "cpu_ms_per_embed": 0.399,
+   "cpu_energy_mj_per_embed": 0.631,
+   "after_idle": [
+    {
+     "cpu_ms": 3.708,
+     "energy_mj": 0.91,
+     "wall_ms": 19.028
+    },
+    {
+     "cpu_ms": 6.272,
+     "energy_mj": 1.341,
+     "wall_ms": 32.38
+    },
+    {
+     "cpu_ms": 2.026,
+     "energy_mj": 2.828,
+     "wall_ms": 20.09
+    }
+   ],
+   "footprint_before_mb": 25.454,
+   "footprint_loaded_mb": 33.516,
+   "footprint_end_mb": 41.688,
+   "peak_footprint_mb": 42.376
+  },
+  {
+   "candidate": "coreml-rebuilt-from-onnx (2.0, weight.bin written in the app from w600k_r50.onnx)",
+   "cosine_vs_current": {
+    "grace_hopper": 1.0000001192092896,
+    "mean": 0.9999997329711914,
+    "min": 0.9999986886978149
+   },
+   "load_ms": 841.644,
+   "load_cpu_ms": 147.938,
+   "first_embed_ms": 3.142,
+   "embed_ms": {
+    "mean": 1.253,
+    "p50": 1.25,
+    "p95": 1.296
+   },
+   "cpu_ms_per_embed": 0.306,
+   "cpu_energy_mj_per_embed": 0.649,
+   "after_idle": [
+    {
+     "cpu_ms": 4.783,
+     "energy_mj": 0.816,
+     "wall_ms": 32.066
+    },
+    {
+     "cpu_ms": 4.845,
+     "energy_mj": 0.831,
+     "wall_ms": 31.457
+    },
+    {
+     "cpu_ms": 4.772,
+     "energy_mj": 0.867,
+     "wall_ms": 30.303
+    }
+   ],
+   "footprint_before_mb": 25.438,
+   "footprint_loaded_mb": 38.204,
+   "footprint_end_mb": 46.188,
+   "peak_footprint_mb": 46.938
+  },
+  {
+   "candidate": "onnxruntime-1.24.2-coreml-ep (MLProgram, CPUAndNeuralEngine; 128 of 130 nodes on Core ML, 2 partitions)",
+   "cosine_vs_current": {
+    "grace_hopper": 0.9998350739479065,
+    "mean": 0.9997880983352662,
+    "min": 0.9996360540390015
+   },
+   "load_ms": 490.106,
+   "load_cpu_ms": 361.597,
+   "first_embed_ms": 31.733,
+   "embed_ms": {
+    "mean": 15.814,
+    "p50": 15.8,
+    "p95": 15.937
+   },
+   "cpu_ms_per_embed": 18.387,
+   "cpu_energy_mj_per_embed": 107.227,
+   "after_idle": [
+    {
+     "cpu_ms": 26.246,
+     "energy_mj": 54.334,
+     "wall_ms": 23.57
+    },
+    {
+     "cpu_ms": 33.441,
+     "energy_mj": 54.695,
+     "wall_ms": 27.934
+    },
+    {
+     "cpu_ms": 40.323,
+     "energy_mj": 51.09,
+     "wall_ms": 34.415
+    }
+   ],
+   "footprint_before_mb": 25.454,
+   "footprint_loaded_mb": 457.532,
+   "footprint_end_mb": 348.251,
+   "peak_footprint_mb": 459.407
+  },
+  {
+   "candidate": "onnxruntime-1.24.2-cpu",
+   "cosine_vs_current": {
+    "grace_hopper": 0.9998351335525513,
+    "mean": 0.9997881412506103,
+    "min": 0.9996361136436462
+   },
+   "load_ms": 131.839,
+   "load_cpu_ms": 101.627,
+   "first_embed_ms": 81.096,
+   "embed_ms": {
+    "mean": 16.501,
+    "p50": 16.205,
+    "p95": 18.973
+   },
+   "cpu_ms_per_embed": 114.753,
+   "cpu_energy_mj_per_embed": 507.39,
+   "after_idle": [
+    {
+     "cpu_ms": 442.406,
+     "energy_mj": 874.591,
+     "wall_ms": 82.674
+    },
+    {
+     "cpu_ms": 376.311,
+     "energy_mj": 1065.316,
+     "wall_ms": 61.454
+    },
+    {
+     "cpu_ms": 443.214,
+     "energy_mj": 871.662,
+     "wall_ms": 81.389
+    }
+   ],
+   "footprint_before_mb": 25.438,
+   "footprint_loaded_mb": 309.891,
+   "footprint_end_mb": 731.032,
+   "peak_footprint_mb": 841.079
+  },
+  {
+   "candidate": "mpsgraph-fp32 (graph built from the ONNX initializers, GPU)",
+   "cosine_vs_current": {
+    "grace_hopper": 0.9998353123664856,
+    "mean": 0.9997881138324738,
+    "min": 0.9996358752250671
+   },
+   "load_ms": 291.81,
+   "load_cpu_ms": 175.123,
+   "first_embed_ms": 1655.392,
+   "embed_ms": {
+    "mean": 3.298,
+    "p50": 3.305,
+    "p95": 3.378
+   },
+   "cpu_ms_per_embed": 0.607,
+   "cpu_energy_mj_per_embed": 3.099,
+   "after_idle": [
+    {
+     "cpu_ms": 15.207,
+     "energy_mj": 53.134,
+     "wall_ms": 72.673
+    },
+    {
+     "cpu_ms": 36.499,
+     "energy_mj": 100.355,
+     "wall_ms": 195.903
+    },
+    {
+     "cpu_ms": 36.362,
+     "energy_mj": 83.298,
+     "wall_ms": 256.682
+    }
+   ],
+   "footprint_before_mb": 25.454,
+   "footprint_loaded_mb": 422.767,
+   "footprint_end_mb": 265.517,
+   "peak_footprint_mb": 501.392
+  },
+  {
+   "candidate": "mpsgraph-fp16 (graph built from the ONNX initializers, GPU)",
+   "cosine_vs_current": {
+    "grace_hopper": 0.9998351335525513,
+    "mean": 0.9997873982787132,
+    "min": 0.9996330738067627
+   },
+   "load_ms": 251.115,
+   "load_cpu_ms": 138.464,
+   "first_embed_ms": 289.489,
+   "embed_ms": {
+    "mean": 2.495,
+    "p50": 2.485,
+    "p95": 2.598
+   },
+   "cpu_ms_per_embed": 0.645,
+   "cpu_energy_mj_per_embed": 3.347,
+   "after_idle": [
+    {
+     "cpu_ms": 14.127,
+     "energy_mj": 12.407,
+     "wall_ms": 22.293
+    },
+    {
+     "cpu_ms": 16.741,
+     "energy_mj": 8.484,
+     "wall_ms": 23.552
+    },
+    {
+     "cpu_ms": 9.432,
+     "energy_mj": 35.285,
+     "wall_ms": 46.573
+    }
+   ],
+   "footprint_before_mb": 25.454,
+   "footprint_loaded_mb": 305.845,
+   "footprint_end_mb": 180.595,
+   "peak_footprint_mb": 373.486
+  }
+ ]
+}

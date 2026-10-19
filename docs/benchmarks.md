@@ -88,7 +88,26 @@ Runs 1 and 2 are in `bench/results/2026-10-18-apple-m5-pro.json`; the run withou
 
 Time Profiler (`xcrun xctrace record --template 'Time Profiler' --attach <pid>`, 146 s, 5 present checks on the demo camera) put the app's own CPU at about 25 ms a check before this release: about 9 ms redrawing the menu bar status item (`NSStatusItem _updateReplicants`), about 4 ms of Core Animation commits, about 4.6 ms in the pipeline (Core ML and the Neural Engine request included), and the rest in dispatch and timers. The status item was redrawn on every watcher state change, twice a check, although the icon looked the same. FaceLock now redraws it only when the icon's shape changes, and a check that finds you within half a second never shows the Checking icon. With the same build otherwise, the cost of a check fell from 18.7 ms and 52.6 mJ to 7.2 ms and 18.9 mJ, and the app from 0.068% to 0.032% of a core (`bench/results/2026-10-18-app-menubar-redraw.json`, load averages 4.4 to 5.7 and 5.4 to 2.8).
 
-The app bundle is 88 MB: the binary 3.9 MB, ArcFaceR50 83 MB and YuNet 0.4 MB.
+The app bundle was 88 MB in 0.5: the binary 3.9 MB, ArcFaceR50 83 MB and YuNet 0.4 MB. Since 2.0 it is 5.1 MB: the r50 weights are downloaded from InsightFace on first run and rebuilt into the same Core ML model (see "Recognizer runtime" below).
+
+## Recognizer runtime
+
+From 2.0 the r50 weights are not in the app: each user downloads InsightFace's `buffalo_l.zip`, and FaceLock runs `w600k_r50.onnx` from it with no Python. Four ways to run it were measured on 2026-10-19 (Apple M5 Pro, macOS 27.0.1, load average 5.8 falling to 1.6), embedding alone on 200 aligned crops from the camera path (the fixture photo plus 199 LFW people), each in its own process. `bench/results/2026-10-19-recognizer-runtime.json` has every figure and the method.
+
+| Runtime | Lowest cosine vs 0.5 | Embed, mean / p95 | CPU per embed | CPU energy per embed | One embed after 20 s idle | Memory added | App size |
+|---|---|---|---|---|---|---|---|
+| Core ML, bundled model (0.5) | 0.999999 | 1.26 / 1.29 ms | 0.40 ms | 0.63 mJ | 24 ms, 4.0 ms CPU | 16 MB | 88 MB |
+| **Core ML, model rebuilt from the ONNX file (2.0)** | **0.999999** | **1.25 / 1.30 ms** | **0.31 ms** | **0.65 mJ** | **31 ms, 4.8 ms CPU** | **21 MB** | **5.1 MB** |
+| ONNX Runtime 1.24.2, Core ML provider | 0.99964 | 15.8 / 15.9 ms | 18.4 ms | 107 mJ | 29 ms, 33 ms CPU | 323 MB | about 36 MB |
+| ONNX Runtime 1.24.2, CPU | 0.99964 | 16.5 / 19.0 ms | 115 ms | 507 mJ | 75 ms, 421 ms CPU | 706 MB | about 36 MB |
+| MPSGraph on the GPU, fp16 | 0.99963 | 2.50 / 2.60 ms | 0.65 ms | 3.35 mJ | 31 ms, 13 ms CPU | 155 MB | 5 MB |
+| MPSGraph on the GPU, fp32 | 0.99964 | 3.30 / 3.38 ms | 0.61 ms | 3.10 mJ | 175 ms, 29 ms CPU | 240 MB | 5 MB |
+
+"Lowest cosine vs 0.5" compares each runtime's embedding with the 0.5 model's on the same crop; the 0.5 model against itself gives 0.999999 because the Neural Engine is not bit-exact from run to run. Memory added is phys_footprint after 500 embeds minus before loading.
+
+FaceLock 2.0 uses the second row. The app ships the r50 model's compiled Core ML graph without `weights/weight.bin`, plus `ArcFaceR50.layout.json`, which maps each of the 237 blobs in `weight.bin` to the ONNX initializer it came from and the cast coremltools applied. On first run FaceLock reads those initializers from the downloaded file, writes `weight.bin` (0.6 s, 234 ms of CPU, 127 MB peak) and accepts it only if its SHA-256 matches the one pinned at conversion. The rebuilt model is byte for byte the 0.5 model, so the calibrated thresholds and every accuracy figure above still hold. On the camera path `facelock-bench latency` measured 1.87 ms mean and 0.84 ms of CPU a frame for it, against 1.95 ms and 0.89 ms for the bundled model in the same session, and `cold` 63.3 ms against 62.6 ms. The first load after the rebuild takes 0.8 s instead of 0.1 s while Core ML compiles the model for the Neural Engine at its new path; later loads are cached.
+
+ONNX Runtime is 12 to 13 times slower per embed here, uses 46 to 290 times the CPU and adds a 31 MB library: its Core ML provider put 128 of the 130 nodes in two Core ML partitions and the rest on the CPU. MPSGraph runs on the GPU, about twice as slow with five times the energy per embed and 155 MB or more of extra memory, and its embeddings differ from 0.5's by up to 0.0004 in cosine, which would need the threshold checked again.
 
 ## Implementation notes from the measurements
 
