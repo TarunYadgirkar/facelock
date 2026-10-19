@@ -26,6 +26,8 @@ public enum Pause: Equatable, Sendable, Codable {
 
 public enum Suppression: String, Codable, Sendable, CaseIterable {
     case screenLocked, displayAsleep, systemAsleep, cameraUnavailable
+    /// Enrollment, Teach, Check with someone else or Measure camera timing has the camera.
+    case setup
 }
 
 public enum NotProtectingReason: String, Codable, Sendable {

@@ -45,6 +45,9 @@ extension WatcherState {
             }
             return StatusLine(tone: .neutral, text: text, glyph: .paused, fix: nil)
         }
+        if suppressions.contains(.setup) {
+            return StatusLine(tone: .neutral, text: "Paused while setup uses the camera", glyph: .paused, fix: nil)
+        }
         if suppressions.contains(.cameraUnavailable) {
             return StatusLine(tone: .warning, text: "Waiting for the camera", glyph: .notProtecting, fix: nil)
         }

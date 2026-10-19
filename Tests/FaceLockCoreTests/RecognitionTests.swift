@@ -260,6 +260,11 @@ struct EnrollmentTests {
         for i in 0..<5 { other = other.offering(frame(unit(80 + i), anchor: 0.1), at: t0 + Double(i) * 0.5, session: 2) }
         #expect(other.finish(into: g, thresholds: t).1 == .differentPerson)
         #expect(TeachSession(startedAt: t0).finish(into: g, thresholds: t).1 == .nothingCaptured)
+
+        var light = TeachSession(startedAt: t0, duration: TeachSession.lightSeconds, target: "light")
+        #expect(!light.isOver(at: t0 + 10))
+        light = light.offering(frame(vector(near: base, cosine: 0.8, seed: 90), anchor: 0.7), at: t0 + 10, session: 1)
+        #expect(light.captured.first?.target == "light")
     }
 
     @Test("check with someone else keeps only their best score")
