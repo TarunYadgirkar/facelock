@@ -43,6 +43,8 @@ You need macOS 15 or later on Apple silicon, a camera (built in, or an external 
 4. **Camera.** macOS asks once for the camera, then setup teaches FaceLock your face.
 5. On the last step, choose **Allow Notifications**, so a lock that fails can reach you, and turn on **Start at login**. If macOS says the login item needs approval, approve it in System Settings > General > Login Items.
 
+<img src="assets/generated/ui-setup-model.png" width="880" alt="The Face model step: a Licence card saying InsightFace makes the weights available for non-commercial research purposes only, a What happens card describing the 289 MB download, a checkbox to accept the licence and a Download 289 MB button">
+
 Updating from 0.5 or earlier (which bundled the weights): the new version opens the same download window once, and your enrollment and settings stay as they are.
 
 ## Setup
