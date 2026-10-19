@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0, 2026-10-19: a public download
+
+### Changed
+
+- FaceLock is now a public, notarized DMG. The InsightFace r50 weights are licensed for non-commercial research only, so neither the DMG, the app nor the repository contains them in any form.
+- Setup has a new Face model step: it names InsightFace's licence, asks you to accept it, then downloads InsightFace's own `buffalo_l.zip` (289 MB) from its GitHub release, checks its SHA-256, keeps only `w600k_r50.onnx` in `~/Library/Application Support/FaceLock/`, and rebuilds the Core ML model from it. Progress shows as it goes, and a failed download says why and offers Try Again.
+- The rebuilt model must hash to the value pinned at conversion, so it is byte for byte the model FaceLock was calibrated and measured with. Speed, energy and every threshold are unchanged (`docs/benchmarks.md`, Recognizer runtime).
+- An owner updating from 0.5 gets a window for the one-time download; the enrollment and settings stay. Until the model is downloaded the menu says so and offers Download the Face Model.
+- The app is 5.1 MB instead of 88 MB. YuNet's MIT notice ships as `THIRD_PARTY_NOTICES.txt`.
+- `facelock-bench assemble` rebuilds the model from the command line, the way the app does.
+
 ## 0.5.1, 2026-10-18: audit fixes
 
 ### Fixed
