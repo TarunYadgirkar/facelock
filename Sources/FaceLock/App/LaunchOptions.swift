@@ -17,6 +17,7 @@ struct LaunchOptions: Sendable, Equatable {
     var showSetup = false
 
     var isDemo: Bool { demoCamera != nil }
+    var isSnapshot: Bool { snapshotDirectory != nil }
     var neverLocks: Bool { dryRun || isDemo }
 
     static func parse(_ argv: [String]) -> LaunchOptions {
@@ -48,7 +49,10 @@ struct AppPaths: Sendable {
 
     static func resolve(_ o: LaunchOptions) -> AppPaths {
         guard o.isDemo || o.dataDirectory != nil else {
-            return AppPaths(enrollment: EnrollmentStore.defaultURL, log: TelemetryLog.defaultURL, demoKey: false)
+            // A dry run watches with your real enrollment but logs elsewhere, so its pretend locks never count.
+            let log = o.dryRun ? FileManager.default.temporaryDirectory.appendingPathComponent("FaceLock-dry-run/checks.jsonl")
+                : TelemetryLog.defaultURL
+            return AppPaths(enrollment: EnrollmentStore.defaultURL, log: log, demoKey: false)
         }
         let dir = o.dataDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("FaceLock-demo-\(ProcessInfo.processInfo.processIdentifier)")

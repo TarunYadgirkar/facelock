@@ -16,6 +16,7 @@ struct SetupView: View {
             .padding(Space.xxl)
         }
         .frame(width: 880, height: 600)
+        .onAppear { flow.model.refreshCameraAccess() }
         .onDisappear { flow.close() }
     }
 

@@ -82,10 +82,15 @@ final class AppModel {
         cameraAccess = Self.currentCameraAccess(demo: options.isDemo)
         hasCamera = options.isDemo || CameraSession.defaultDevice() != nil
         refreshBlock()
+        // A demo never uses the camera, so it ignores screen lock and sleep: it keeps watching the
+        // stored photo even while the screen is locked (snapshots and measurements run that way).
+        if !options.isDemo, SessionState.current().screenIsLocked { controller.send(.screenLocked) }
         controller.send(.start)
         if let p = Pause.restored(prefs.pause, now: Date()) { controller.send(.pause(p)) }
         controller.send(.powerSourceChanged(onBattery: PowerSource.isOnBattery))
-        systemEvents = SystemEventMonitor { [weak self] e in Task { @MainActor in self?.controller.send(e) } }
+        if !options.isDemo {
+            systemEvents = SystemEventMonitor { [weak self] e in Task { @MainActor in self?.controller.send(e) } }
+        }
         powerMonitor = PowerMonitor { [weak self] battery in self?.controller.send(.powerSourceChanged(onBattery: battery)) }
         Task { await loadEngine() }
     }
@@ -143,7 +148,8 @@ final class AppModel {
         }
     }
 
-    /// Blocks the watcher with the most basic reason it cannot run, or lets it run.
+    /// Blocks the watcher with the most basic reason it cannot run, or lets it run. Until the
+    /// models and the camera are ready it stays blocked, so no check can start against nothing.
     func refreshBlock() {
         let reason = Protection.blockReason(modelsAvailable: engine != .failed, hasCamera: hasCamera, camera: cameraAccess,
                                             store: storeLoad)
@@ -151,7 +157,19 @@ final class AppModel {
             controller.send(.block(reason))
         } else if engine == .ready, checks.isSet {
             controller.send(.unblock)
+        } else {
+            controller.send(.block(.starting))
         }
+    }
+
+    /// Camera access can be turned on in System Settings while FaceLock runs; read it again
+    /// whenever the menu or setup opens instead of polling.
+    func refreshCameraAccess() {
+        let now = Self.currentCameraAccess(demo: options.isDemo)
+        guard now != cameraAccess else { return }
+        cameraAccess = now
+        configureWatchCamera()
+        refreshBlock()
     }
 
     func loadStore() {
@@ -167,6 +185,7 @@ final class AppModel {
     // MARK: state
 
     private func apply(_ s: WatcherState) {
+        guard s != state else { return }
         let pauseChanged = s.pause != state.pause
         state = s
         if pauseChanged { prefs.pause = s.pause }
@@ -178,7 +197,7 @@ final class AppModel {
         guard state.countdownEndsAt != nil else {
             countdownTicker?.invalidate()
             countdownTicker = nil
-            countdownRemaining = 1
+            if countdownRemaining != 1 { countdownRemaining = 1 }
             return
         }
         tickCountdown()

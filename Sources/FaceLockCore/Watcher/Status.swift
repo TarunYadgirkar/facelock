@@ -34,7 +34,7 @@ extension WatcherState {
             case .cameraAccessOff: .openCameraSettings
             case .noEnrollment: .startEnrollment
             case .needsReenroll: .reenroll
-            case .noCamera, .modelsMissing: nil
+            case .noCamera, .modelsMissing, .starting: nil
             }
             return StatusLine(tone: .critical, text: "Not protecting: \(reason.text)", glyph: .notProtecting, fix: fix)
         }

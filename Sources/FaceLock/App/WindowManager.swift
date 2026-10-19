@@ -51,7 +51,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let check = SomeoneElseModel(app: model)
         show(id: "someone-else", title: "Check with Someone Else",
              content: SomeoneElseView(check: check, standalone: true) { [weak self] in self?.close("someone-else") }
-                .padding(Space.xl).frame(width: 520))
+                .padding(Space.xl).frame(width: 680, height: 460))
     }
 
     func performFix(_ fix: StatusFix) {

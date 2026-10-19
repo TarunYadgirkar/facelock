@@ -10,8 +10,20 @@ enum Glyphs {
     private static let frame = NSRect(x: 2, y: 2, width: 14, height: 14)
     private static let arm: CGFloat = 4.5
 
-    /// `remaining` is the countdown fraction left (1 to 0); other glyphs ignore it.
-    static func image(_ glyph: MenuGlyph, remaining: Double = 1) -> NSImage {
+    @MainActor private static var cache: [String: NSImage] = [:]
+
+    /// `remaining` is the countdown fraction left (1 to 0); other glyphs ignore it. The ring is
+    /// drawn in 5% steps, so every image is built once and reused.
+    @MainActor static func image(_ glyph: MenuGlyph, remaining: Double = 1) -> NSImage {
+        let step = glyph == .countdown ? (max(0, min(1, remaining)) * 20).rounded(.up) / 20 : 1
+        let key = "\(glyph)|\(step)"
+        if let hit = cache[key] { return hit }
+        let img = render(glyph, remaining: step)
+        cache[key] = img
+        return img
+    }
+
+    private static func render(_ glyph: MenuGlyph, remaining: Double) -> NSImage {
         let img = NSImage(size: size, flipped: false) { _ in
             NSColor.black.setStroke()
             NSColor.black.setFill()

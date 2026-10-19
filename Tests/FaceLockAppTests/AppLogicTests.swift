@@ -38,6 +38,10 @@ struct AppLogicTests {
         #expect(p.log != TelemetryLog.defaultURL)
         let real = AppPaths.resolve(LaunchOptions.parse(["FaceLock"]))
         #expect(real.enrollment == EnrollmentStore.defaultURL)
+        #expect(real.log == TelemetryLog.defaultURL)
+        let dry = AppPaths.resolve(LaunchOptions.parse(["FaceLock", "--dry-run"]))
+        #expect(dry.enrollment == EnrollmentStore.defaultURL)
+        #expect(dry.log != TelemetryLog.defaultURL)
     }
 
     @Test("status splits into a headline and a detail, with the next check while watching")
@@ -94,6 +98,14 @@ struct AppLogicTests {
         #expect(LegacyCheck.isOldLauncher(old, running: new))
         #expect(!LegacyCheck.isOldLauncher(new, running: old))
         #expect(!LegacyCheck.isOldLauncher(old, running: old))
+    }
+
+    @Test("a reused pid only counts as the old watcher when its arguments name facelock")
+    func oldWatcher() {
+        #expect(LegacyCheck.namesFaceLock(["/opt/homebrew/bin/python3", "/opt/homebrew/bin/python3", "-m", "facelock", "watch"]))
+        #expect(!LegacyCheck.namesFaceLock(["/usr/bin/python3", "/usr/bin/python3", "train.py", "--epochs", "3"]))
+        #expect(!LegacyCheck.isOldWatcher(pid: ProcessInfo.processInfo.processIdentifier))
+        #expect(!LegacyCheck.arguments(ProcessInfo.processInfo.processIdentifier).isEmpty)
     }
 
     @Test("quality chips read the runtime gate, and hints say what to change")

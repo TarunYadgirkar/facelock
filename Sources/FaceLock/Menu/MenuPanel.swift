@@ -20,6 +20,7 @@ struct MenuPanel: View {
         }
         .padding(Space.s)
         .frame(width: 304)
+        .onAppear { model.refreshCameraAccess() }
     }
 
     @ViewBuilder private var header: some View {
@@ -150,7 +151,7 @@ struct MenuBarLabel: View {
 
     var body: some View {
         let line = model.state.status(now: Date())
-        Image(nsImage: Glyphs.image(model.engine == .loading ? .watching : line.glyph, remaining: model.countdownRemaining))
+        Image(nsImage: Glyphs.image(line.glyph, remaining: model.countdownRemaining))
             .accessibilityLabel(Glyphs.description(line.glyph))
     }
 }

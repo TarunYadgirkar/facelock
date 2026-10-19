@@ -104,12 +104,26 @@ enum LegacyCheck {
         }
     }
 
-    /// The pid file can outlive the watcher and the number can be reused: only a Python or
-    /// facelock process counts.
+    /// The pid file can outlive the watcher and the number can be reused, even by another Python
+    /// job: only a process whose own path or arguments name facelock counts. Never this app.
     static func isOldWatcher(pid: Int32) -> Bool {
-        var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { return false }
-        let path = String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self).lowercased()
-        return path.contains("python") || path.contains("facelock")
+        guard pid != ProcessInfo.processInfo.processIdentifier else { return false }
+        return namesFaceLock(arguments(pid))
+    }
+
+    static func namesFaceLock(_ args: [String]) -> Bool {
+        args.contains { $0.lowercased().contains("facelock") }
+    }
+
+    /// The executable path and argv of a process (KERN_PROCARGS2), empty when unreadable.
+    static func arguments(_ pid: Int32) -> [String] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        var buf = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return [] }
+        let argc = Int(buf.withUnsafeBytes { $0.load(as: Int32.self) })
+        let parts = buf[MemoryLayout<Int32>.size..<size].split(separator: 0, omittingEmptySubsequences: true)
+        return parts.prefix(argc + 1).map { String(decoding: $0, as: UTF8.self) }
     }
 }
