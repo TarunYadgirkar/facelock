@@ -42,7 +42,10 @@ trap 'rm -rf "$STAGING"' EXIT
 ditto "$APP" "$STAGING/FaceLock.app"
 ln -s /Applications "$STAGING/Applications"
 rm -f "$DMG"
-hdiutil create -volname FaceLock -srcfolder "$STAGING" -fs APFS -format ULFO -ov "$DMG" >/dev/null
+# hdiutil's own estimate for an APFS image from a folder runs short ("No space left on device"), so size it:
+# the app plus 30% and 32 MB of headroom.
+SIZE_MB=$(( $(du -sm "$STAGING/FaceLock.app" | cut -f1) * 13 / 10 + 32 ))
+hdiutil create -volname FaceLock -srcfolder "$STAGING" -fs APFS -format ULFO -size "${SIZE_MB}m" -ov "$DMG" >/dev/null
 codesign --force --sign "$IDENTITY" --timestamp "$DMG"
 xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
 xcrun stapler staple "$DMG"
