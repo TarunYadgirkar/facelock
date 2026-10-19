@@ -1,13 +1,16 @@
 # Benchmarks
 
-Everything here comes from `scripts/bench.sh`, which runs `facelock-bench` and writes aggregates only to `bench/results/<date>-<chip>.json`. The harness never reads owner images; it uses LFW funneled and a public-domain photo of Grace Hopper. Results below: `bench/results/2026-10-18-apple-m5-pro.json`, Apple M5 Pro, macOS 27.0.1, with other jobs running (load average 3 to 15).
+Everything here comes from `scripts/bench.sh`, which runs `facelock-bench` and writes aggregates only to `bench/results/<date>-<chip>.json`. The harness never reads owner images or the real camera; it uses LFW funneled and a public-domain photo of Grace Hopper. Every step's load average (1, 5 and 15 minutes) is recorded before and after it and stored with its result, because every timing and energy figure below moves with load.
+
+Results below: `bench/results/2026-10-18-apple-m5-pro.json`, Apple M5 Pro, macOS 27.0.1, with other jobs running (1-minute load average 2.4 to 5.6 during the run) and heavy memory pressure (swap 17.4 of 18.4 GB in use at the end).
 
 ## Reproduce
 
 ```sh
 python -I tools/convert_models.py        # builds models/*.mlpackage and .mlmodelc from the pinned upstream files
 bench/lfw.sh                              # LFW funneled, figshare 5976015, sha256 b47c8422...100a
-scripts/bench.sh                          # about 20 minutes; IDLE_SECONDS and LOCKED_SECONDS shorten it
+scripts/build-app.sh                      # build/FaceLock.app, for the app runs
+scripts/bench.sh                          # about 45 minutes; IDLE_SECONDS, LOCKED_SECONDS and APP_SECONDS shorten it
 ```
 
 `tools/requirements.lock.txt` pins the conversion environment (Python 3.12, torch 2.7.0, coremltools 9.0, onnx2torch 1.5.15, onnx 1.23.2). `tools/models.lock.json` pins the upstream files by sha256.
@@ -34,45 +37,58 @@ Not measured: webcam strangers (LFW strangers score lower than strangers on your
 
 CPU energy is `ri_energy_nj` from `proc_pid_rusage`; Neural Engine, GPU, camera and ISP energy are not visible to an unprivileged process.
 
-| Measure | Result | Target |
-|---|---|---|
-| Per frame on LFW (detect, align, quality, embed) | 1.59 ms mean, 1.75 ms p95 | 2.5 ms p95 |
-| Per frame, camera path on a 640x480 frame | 1.85 ms mean, 1.90 ms p95 | 2.5 ms p95 |
-| CPU per frame, net of image preparation | 0.75 ms, 1.80 mJ | |
-| Look after 30 s idle (3 frames) | 7 to 18 ms CPU; median 6.7 mJ (one outlier at 58 mJ under load) | 10 ms, 15 mJ |
-| Launch to first decision, camera excluded | 59 to 94 ms; peak footprint 16 MB | 0.3 s, 60 MB |
+| Measure | Result | Load average (1 min) | Target |
+|---|---|---|---|
+| Per frame, camera path on a 640x480 frame (vImageScale, detect, align, quality, embed, score) | 1.89 ms mean, 1.96 ms p95 | 4.3 to 4.4 | 2.5 ms p95 |
+| CPU per frame, camera path | 1.05 ms, 4.1 mJ | 4.3 to 4.4 | |
+| Per frame on LFW (detect, align, quality, embed) | 1.62 ms mean, 1.74 ms p95 | 4.3 to 4.4 | |
+| CPU per frame on LFW, net of JPEG decode and framing | 0.90 ms, 2.3 mJ | 4.3 to 4.4 | |
+| Look after 30 s idle (3 frames) | 13.5 ms CPU and 38.7 mJ median (13 to 19 ms, 25 to 61 mJ) | 3.4 to 4.4 | 10 ms, 15 mJ |
+| Launch to first decision, camera excluded | 65 to 163 ms (the first run loads the models cold); peak footprint 15.5 MB | 3.4 | 0.3 s, 60 MB |
 
-Stage times on LFW: YuNet 0.24 ms, warp 0.10 ms, crop luma and sharpness 0.05 ms, r50 1.20 ms. Both models run on the Neural Engine with `.cpuAndNeuralEngine`: YuNet 132 of 132 ops, r50 133 of 136 ops (98% of the estimated cost).
+The camera-path figure is the one the app runs, and the one the 2.5 ms target applies to. It holds on a lightly loaded machine; the audit before this release measured 4.8 to 5.6 ms mean on the same path at load averages of 5 to 11. The LFW figures are kept for comparison with the decision spec's N2 probe.
 
-The first frame after idling pays for waking the Neural Engine (3 to 46 ms of YuNet wall time in these runs). A present check stops after its first frame, so a check is one such frame.
+Stage times on the camera path: YuNet including the scale 0.34 ms, warp 0.26 ms, crop luma and sharpness 0.06 ms, r50 1.23 ms. Both models run on the Neural Engine with `.cpuAndNeuralEngine`: YuNet 132 of 132 ops, r50 133 of 136 ops (98% of the estimated cost).
+
+The first frame after idling pays for waking the Neural Engine (32 ms of wall time median in the look-after-idle runs, against 2.1 ms for later frames). A present check stops after its first frame, so a check is one such frame.
 
 ## Idle
 
-`facelock-bench idle` runs the real watcher (`WatchController`, `CheckRunner`) in dry run on the stored-image camera, Balanced cadence, after a 20 s warmup.
+`facelock-bench idle` runs the real watcher (`WatchController`, `CheckRunner`) in dry run on the stored-image camera, Balanced cadence, after a 20 s warmup. `scripts/bench.sh` runs the present state twice.
 
-| State | CPU | CPU energy | Footprint | Target |
-|---|---|---|---|---|
-| Present, 600 s, 20 checks | 0.034% of a core | 2.5 J/hour (0.5 in an earlier run) | 12 MB (peak 18 MB) | 0.05%, 4 J/hour, 60 MB |
-| Screen locked, 300 s | 0.0007% of a core | 0.05 J/hour | 12 MB | 0.01%, 0.5 J/hour |
+| State | CPU | CPU energy | Footprint | Load average (1 min) | Target |
+|---|---|---|---|---|---|
+| Present, 600 s, 20 checks, run 1 | 0.039% of a core | 4.0 J/hour | 12 MB (peak 17 MB) | 3.4 to 5.6 | 0.05%, 4 J/hour, 60 MB |
+| Present, 600 s, 20 checks, run 2 | 0.024% of a core | 2.2 J/hour | 12 MB | 5.6 to 2.4 | 0.05%, 4 J/hour |
+| Screen locked, 300 s | 0.0004% of a core | 0.04 J/hour | 12 MB | 2.4 to 4.8 | 0.01%, 0.5 J/hour |
 
-The Python version used 0.98% of a core and 40.8 J/hour present, 0.65% and 16.1 J/hour locked, at 248 to 262 MB. While the screen is locked no timer runs at all.
+Both present runs meet the CPU target; the first sits right at the energy target. The audit before this release measured 0.060% at load 5 to 8, so the 0.05% target holds only on a lightly loaded machine: the cost of each check (about 15 to 19 ms of CPU on a busy machine) is what sets the percentage. The Python version used 0.98% of a core and 40.8 J/hour present, 0.65% and 16.1 J/hour locked, at 248 to 262 MB. While the screen is locked no timer runs at all.
 
-The stored-image camera delivers settled frames at once, so these camera on-times are not hardware numbers. Camera open, first frame and exposure settle need the app's camera permission and are measured from Diagnostics > Measure camera timing.
+The stored-image camera delivers settled frames at once (camera on 0.07 s per check here), so these camera on-times are not hardware numbers. Camera open, first frame and exposure settle need the app's camera permission and are measured from Settings > Diagnostics > Measure Camera Timing.
 
 ## The app
 
-The release `FaceLock.app` (`scripts/build-app.sh`, Developer ID signed) watching the demo camera with `--demo-camera Tests/Fixtures/grace_hopper.jpg --demo-enrolled`, Balanced, sampled with `proc_pid_rusage` from 40 s to 340 s after launch. The machine was busy: load average 5 to 10, swap 15.1 of 16.4 GB in use.
+`facelock-bench app` measures the shipping `FaceLock.app` (`scripts/build-app.sh`, Developer ID signed) from outside: it launches it on the demo camera (`--demo-camera Tests/Fixtures/grace_hopper.jpg --demo-enrolled --data-dir <temp>`, never the real camera, never a lock), waits 40 s, samples `proc_pid_rusage` every 0.5 s for 300 s, and lines the samples up with the app's own check log. Half-second intervals that overlap a check (camera start to 1 s after its log line) are that check's; the rest give the cost of waiting between checks, and a check's cost is the total minus that rate. `scripts/bench.sh` runs it twice and gates acceptance on it.
 
-| Measure | Result | Target |
-|---|---|---|
-| Resident footprint while watching | 32 MB (peak 100 MB while the demo enrollment loads a second pipeline) | 60 MB |
-| CPU, two 300 s runs, 10 checks each | 0.091% and 0.119% of a core | 0.05% |
-| CPU energy | 8.0 and 8.8 J/hour | 4 J/hour |
-| Between checks | about 0.02% of a core | |
-| Per present check | 27 to 40 ms of CPU | 10 ms |
-| App bundle | 88 MB: binary 3.6 MB, ArcFaceR50 83 MB, YuNet 0.4 MB | |
+| Measure | Run 1 | Run 2 | Earlier run, no paging | Target |
+|---|---|---|---|---|
+| CPU | 0.052% of a core | 0.045% | 0.032% | 0.05% |
+| CPU energy | 4.8 J/hour | 4.1 J/hour | 2.7 J/hour | 4 J/hour |
+| Between checks | 0.011% | 0.012% | 0.010% | |
+| Per present check (1 frame) | 13.6 ms CPU, 37.9 mJ | 11.0 ms, 31.4 mJ | 7.2 ms, 18.9 mJ | 10 ms, 15 mJ |
+| Of which FaceLock's own code (user time) | 1.7 ms | 1.7 ms | 1.4 ms | |
+| Memory footprint (phys_footprint), median | 31 MB | 31 MB | 30 MB | 60 MB |
+| Resident size, median and max | 19 MB, 93 MB | 16 MB, 48 MB | 31 MB, 90 MB | |
+| Page-ins during the run | 700 | 625 | 4 | |
+| Load average (1 min) | 4.8 to 3.8 | 3.8 | 5.4 to 2.8 | |
 
-Under the same load, `facelock-bench idle --seconds 100` (the engine alone) used 0.082% of a core, 3.1 J/hour and 14 to 37 ms per check, so most of the miss is the cost of a check on a loaded machine (waking the Neural Engine), and the app adds about 0.02% for the menu bar. The engine met both targets in the quieter run above. Re-measure the app on an idle Mac before quoting it against the targets.
+Runs 1 and 2 are in `bench/results/2026-10-18-apple-m5-pro.json`; the run without paging is the "after" run in `bench/results/2026-10-18-app-menubar-redraw.json`. Under memory pressure macOS takes the app's idle pages away between checks, and each check faults them back in: almost all of the per-check cost is then kernel time. The resident size moves with that pressure, which is why the footprint is the figure to compare. The per-check targets are not met, and the idle target is met only without heavy paging.
+
+### Where a check's CPU went
+
+Time Profiler (`xcrun xctrace record --template 'Time Profiler' --attach <pid>`, 146 s, 5 present checks on the demo camera) put the app's own CPU at about 25 ms a check before this release: about 9 ms redrawing the menu bar status item (`NSStatusItem _updateReplicants`), about 4 ms of Core Animation commits, about 4.6 ms in the pipeline (Core ML and the Neural Engine request included), and the rest in dispatch and timers. The status item was redrawn on every watcher state change, twice a check, although the icon looked the same. FaceLock now redraws it only when the icon's shape changes, and a check that finds you within half a second never shows the Checking icon. With the same build otherwise, the cost of a check fell from 18.7 ms and 52.6 mJ to 7.2 ms and 18.9 mJ, and the app from 0.068% to 0.032% of a core (`bench/results/2026-10-18-app-menubar-redraw.json`, load averages 4.4 to 5.7 and 5.4 to 2.8).
+
+The app bundle is 88 MB: the binary 3.9 MB, ArcFaceR50 83 MB and YuNet 0.4 MB.
 
 ## Implementation notes from the measurements
 

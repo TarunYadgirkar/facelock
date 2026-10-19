@@ -36,3 +36,7 @@ A paired iPhone or Watch going out of range is the other cheap presence signal. 
 ## Known limits to document, not fix
 
 Masks, large head turns and low resolution degrade ArcFace; a masked or turned-away owner reads as absent, and the rechecks and countdown are the mitigation. Siblings and twins can score like the owner. macOS offers no IR or depth camera to third-party apps, so an RGB webcam is the ceiling.
+
+## 7. A check under 10 ms and 15 mJ on a busy Mac
+
+The app's own code takes under 2 ms a check, but under memory pressure macOS pages its idle memory out between checks and each check faults Core ML's pages back in (11 to 14 ms of CPU and 31 to 38 mJ a check with swap nearly full, 7.2 ms and 19 mJ without paging). Measure on an idle Mac with `facelock-bench app` first; if paging still dominates, try keeping the models' working set resident between checks and compare footprint against the per-check saving.
