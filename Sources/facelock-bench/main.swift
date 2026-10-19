@@ -49,6 +49,7 @@ facelock-bench: FaceLock's benchmark harness. Every subcommand runs in memory an
   owner-report [--out PATH]          (refuses any path inside the repo)
   plan                               (compute plan of both models)
   dry-run [--image PATH] [--seconds 120] [--leave-after 5]
+  app [--app build/FaceLock.app] [--seconds 300] [--warmup 40]   (the shipping app on the demo camera)
 Common: --models DIR (default: $FACELOCK_MODELS, then <repo>/models)
 """
 
@@ -88,6 +89,10 @@ func run() async throws {
                                "neural_engine_cost_share": rounded(p.neuralEngineCostShare), "label": p.label]
         }
         printJSON(out)
+    case "app":
+        let app = args.url("app") ?? ModelLocator.repoModels.deletingLastPathComponent().appendingPathComponent("build/FaceLock.app")
+        printJSON(try await AppRun.run(app: app, image: args.url("image") ?? fixture, seconds: args.double("seconds", 300),
+                                       warmup: args.double("warmup", 40)))
     case "dry-run":
         try await DryRun.run(image: args.url("image") ?? fixture, models: models, seconds: args.double("seconds", 120),
                             leaveAfter: args.has("leave-after") ? args.double("leave-after", 5) : nil)
