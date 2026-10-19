@@ -13,7 +13,8 @@ fi
 
 forbidden='\.(npz|npy|f32|onnx|mlmodel|mlpackage|mlmodelc)(/|$)'
 image='\.(png|jpe?g|gif|heic|heif|bmp|tiff?|webp|icns|raw|bgra|mov|mp4)$'
-allowed='^(Resources/Assets\.xcassets/|Resources/AppIcon\.icns$|Tests/Fixtures/grace_hopper\.jpg$|docs/img/)'
+# UI screenshots: rendered by `FaceLock --demo-camera Tests/Fixtures/grace_hopper.jpg --snapshot <dir>` only.
+allowed='^(Resources/Assets\.xcassets/|Resources/AppIcon\.icns$|Tests/Fixtures/grace_hopper\.jpg$|docs/img/|assets/generated/ui-[a-z0-9-]+\.png$)'
 
 bad=0
 while IFS= read -r f; do
@@ -22,7 +23,7 @@ while IFS= read -r f; do
     echo "check-no-biometrics: $f is an embedding or model file; keep it out of git" >&2
     bad=1
   elif [[ "$f" =~ $image ]] && ! [[ "$f" =~ $allowed ]]; then
-    echo "check-no-biometrics: $f is an image outside the allowlist (Resources/Assets, Tests/Fixtures/grace_hopper.jpg, docs/img/)" >&2
+    echo "check-no-biometrics: $f is an image outside the allowlist (Resources/Assets, Tests/Fixtures/grace_hopper.jpg, docs/img/, assets/generated/ui-*.png)" >&2
     bad=1
   fi
 done <<< "$files"

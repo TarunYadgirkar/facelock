@@ -59,6 +59,21 @@ The Python version used 0.98% of a core and 40.8 J/hour present, 0.65% and 16.1 
 
 The stored-image camera delivers settled frames at once, so these camera on-times are not hardware numbers. Camera open, first frame and exposure settle need the app's camera permission and are measured from Diagnostics > Measure camera timing.
 
+## The app
+
+The release `FaceLock.app` (`scripts/build-app.sh`, Developer ID signed) watching the demo camera with `--demo-camera Tests/Fixtures/grace_hopper.jpg --demo-enrolled`, Balanced, sampled with `proc_pid_rusage` from 40 s to 340 s after launch. The machine was busy: load average 5 to 10, swap 15.1 of 16.4 GB in use.
+
+| Measure | Result | Target |
+|---|---|---|
+| Resident footprint while watching | 32 MB (peak 100 MB while the demo enrollment loads a second pipeline) | 60 MB |
+| CPU, two 300 s runs, 10 checks each | 0.091% and 0.119% of a core | 0.05% |
+| CPU energy | 8.0 and 8.8 J/hour | 4 J/hour |
+| Between checks | about 0.02% of a core | |
+| Per present check | 27 to 40 ms of CPU | 10 ms |
+| App bundle | 88 MB: binary 3.6 MB, ArcFaceR50 83 MB, YuNet 0.4 MB | |
+
+Under the same load, `facelock-bench idle --seconds 100` (the engine alone) used 0.082% of a core, 3.1 J/hour and 14 to 37 ms per check, so most of the miss is the cost of a check on a loaded machine (waking the Neural Engine), and the app adds about 0.02% for the menu bar. The engine met both targets in the quieter run above. Re-measure the app on an idle Mac before quoting it against the targets.
+
 ## Implementation notes from the measurements
 
 - **Detector input.** YuNet takes a 320x240 BGR image input; Core ML reads the BGRA pixel buffer directly. It replaced a float32 MLMultiArray input: detections are bit-identical on 60 LFW images and on all 5,140 (same accuracy to the fourth decimal), every op stays on the Neural Engine, YuNet takes 0.27 ms instead of 0.30 ms, and the CPU no longer converts 307,200 bytes to floats per frame.
