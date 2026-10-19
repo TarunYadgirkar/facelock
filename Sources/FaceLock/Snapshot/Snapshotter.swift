@@ -25,12 +25,26 @@ final class Snapshotter {
         self.directory = directory
     }
 
+    /// The face model step before, during and after the real download from InsightFace.
+    private func downloadRecognizer() async -> Bool {
+        let flow = SetupFlow(model: model, start: .model)
+        await render(SetupView(flow: flow) {}, "ui-setup-model")
+        model.installRecognizer()
+        if await wait(60, { if case let .working(.downloading(received, _)) = self.model.recognizer { received > 40 << 20 } else { false } }) {
+            await render(SetupView(flow: flow) {}, "ui-setup-model-downloading")
+        }
+        guard await wait(900, { self.model.recognizer == .installed && self.model.engine == .ready }) else { return false }
+        await render(SetupView(flow: flow) {}, "ui-setup-model-ready")
+        return true
+    }
+
     func run() async {
         // App Nap would stretch the waits below and the snapshots would show later states than named.
         let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated], reason: "Rendering snapshots")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         await render(GlyphSheet(), "ui-menu-glyphs")
+        if model.recognizer != .installed, await !downloadRecognizer() { return finish("the face model did not download") }
         guard await wait(20, { self.model.engine != .loading }), model.engine == .ready else { return finish("models did not load") }
 
         let flow = SetupFlow(model: model, start: .welcome)

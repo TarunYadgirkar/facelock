@@ -12,7 +12,7 @@ enum RecognizerState: Equatable {
 /// downloads them from InsightFace once, after accepting that licence, and FaceLock rebuilds its
 /// Core ML model from them.
 extension AppModel {
-    static let megabyte: Int64 = 1_048_576
+    static let megabyte: Int64 = 1_000_000
 
     func installRecognizer() {
         guard recognizerInstaller == nil else { return }
