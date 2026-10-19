@@ -154,8 +154,8 @@ private struct BeforeStep: View {
 
     var body: some View {
         StepPage(title: "The old FaceLock is still here",
-                 lead: "The earlier Python version left these behind. Each button does one thing, and anything it removes "
-                    + "goes to the Trash, so you can put it back.") {
+                 lead: "The earlier Python version left these behind. Each button does one thing. Anything it removes goes "
+                    + "to the Trash, where you can restore it until you empty the Trash.") {
             VStack(alignment: .leading, spacing: Space.s) {
                 let items = flow.model.setupLegacyItems
                 if items.isEmpty {
@@ -185,7 +185,7 @@ private struct BeforeStep: View {
             }
             .readableWidth()
         } actions: {
-            Button("Back") { flow.back() }.buttonStyle(SecondaryButtonStyle())
+            Button("Back") { flow.back() }.buttonStyle(SecondaryButtonStyle()).keyboardShortcut(.cancelAction)
             Button("Continue") { flow.next() }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
@@ -201,7 +201,7 @@ private struct CameraStep: View {
     var body: some View {
         let access = flow.model.cameraAccess
         StepPage(title: "FaceLock needs the camera",
-                 lead: "The camera turns on for about half a second at each check and the green light shows when it does. "
+                 lead: "The camera turns on briefly at each check and the green light shows when it does. "
                     + "Frames stay in memory and are never saved.") {
             VStack(alignment: .leading, spacing: Space.m) {
                 if flow.model.options.isDemo {
@@ -221,7 +221,7 @@ private struct CameraStep: View {
                 }
             }
         } actions: {
-            Button("Back") { flow.back() }.buttonStyle(SecondaryButtonStyle())
+            Button("Back") { flow.back() }.buttonStyle(SecondaryButtonStyle()).keyboardShortcut(.cancelAction)
             if access == .notDetermined && !flow.model.options.isDemo {
                 Button("Allow Camera Access") {
                     asking = true
@@ -257,7 +257,7 @@ private struct FaceStep: View {
                 if let e = flow.saveError { Text(e).font(Typeface.caption).foregroundStyle(Theme.critical) }
             }
         } actions: {
-            Button("Back") { flow.back() }.buttonStyle(SecondaryButtonStyle())
+            Button("Back") { flow.back() }.buttonStyle(SecondaryButtonStyle()).keyboardShortcut(.cancelAction)
             Button("Save My Face") { flow.saveEnrollment() }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
@@ -293,39 +293,76 @@ private struct FinishStep: View {
     let flow: SetupFlow
     let onClose: () -> Void
     @State private var error: String?
+    @State private var confirmDelete = false
 
     var body: some View {
         let model = flow.model
         StepPage(title: "FaceLock is watching",
-                 lead: "It lives in the menu bar. Pause it there before a video call in another room, or teach it a new look "
-                    + "after a haircut or new glasses.") {
+                 lead: "It lives in the menu bar. Pause it there when you step back from the desk on purpose, such as during "
+                    + "a presentation, or teach it a new look after a haircut or new glasses.") {
             VStack(alignment: .leading, spacing: Space.m) {
                 LoginItemToggle()
-                if model.legacyItems.contains(.enrollment) {
-                    HStack(alignment: .top, spacing: Space.m) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(LegacyItem.enrollment.title).font(Typeface.bodyEmphasis)
-                            Text(LegacyItem.enrollment.detail).font(Typeface.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button(LegacyItem.enrollment.action) {
-                            Task { do { try await model.perform(.enrollment) } catch { self.error = error.localizedDescription } }
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-                    }
-                    .padding(Space.m)
-                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: Radius.card))
-                }
+                NotificationsOffer()
+                if model.legacyItems.contains(.enrollment) { oldFaceData(model) }
                 if let error { Text(error).font(Typeface.caption).foregroundStyle(Theme.critical) }
             }
             .readableWidth()
         } actions: {
-            Button("Done") {
-                if !model.options.isDemo { Task { _ = await model.notifier.requestAuthorization() } }
-                onClose()
+            Button("Done") { onClose() }
+                .buttonStyle(PrimaryButtonStyle())
+                .keyboardShortcut(.defaultAction)
+        }
+        .task { await model.refreshNotificationAccess() }
+        .confirmationDialog("Delete your old face data for good?", isPresented: $confirmDelete) {
+            Button("Delete Permanently", role: .destructive) {
+                do { try model.deleteLegacyEnrollmentPermanently() } catch { self.error = error.localizedDescription }
             }
-            .buttonStyle(PrimaryButtonStyle())
-            .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("enrollment.npz is deleted without going to the Trash. This can't be undone.")
+        }
+    }
+
+    private func oldFaceData(_ model: AppModel) -> some View {
+        HStack(alignment: .top, spacing: Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(LegacyItem.enrollment.title).font(Typeface.bodyEmphasis)
+                Text(LegacyItem.enrollment.detail).font(Typeface.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: Space.xs) {
+                Button(LegacyItem.enrollment.action) {
+                    Task { do { try await model.perform(.enrollment) } catch { self.error = error.localizedDescription } }
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                Button("Delete Permanently…") { confirmDelete = true }
+                    .buttonStyle(.link)
+                    .font(Typeface.caption)
+            }
+        }
+        .padding(Space.m)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Radius.card))
+    }
+}
+
+/// Asks for notification permission with the reason first, so the one alert that matters (a
+/// lock that failed) can reach the owner.
+private struct NotificationsOffer: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch model.notificationAccess {
+        case .notDetermined:
+            HStack(spacing: Space.m) {
+                Text("Allow notifications so FaceLock can tell you if a lock fails.").font(Typeface.body)
+                Spacer()
+                Button("Allow Notifications") { Task { await model.requestNotifications() } }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+        case .denied:
+            NotificationAccessRow()
+        case .allowed, .unavailable:
+            EmptyView()
         }
     }
 }
@@ -340,6 +377,9 @@ struct LoginItemToggle: View {
                 .disabled(model.options.isDemo)
             if model.options.isDemo {
                 Text("Off in a demo run.").font(Typeface.caption).foregroundStyle(.secondary)
+            } else if let error = model.loginItemError, !model.loginItem.isOn {
+                Text(error).font(Typeface.caption).foregroundStyle(Theme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if let detail = model.loginItem.detail {
                 HStack(spacing: Space.s) {
                     Text(detail).font(Typeface.caption).foregroundStyle(Theme.warning)

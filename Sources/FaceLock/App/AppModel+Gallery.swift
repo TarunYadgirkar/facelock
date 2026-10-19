@@ -74,13 +74,16 @@ extension AppModel {
 
     var learnedLooks: Int { payload?.gallery.adaptive.count ?? 0 }
 
-    /// Moves the enrollment and the log to the Trash and forgets the key.
+    /// Moves the enrollment and the log to the Trash and forgets the key, including a raw key file
+    /// an older development build may have left next to the enrollment.
     func deleteAllData() throws {
         let fm = FileManager.default
         for url in [paths.enrollment, paths.log] + telemetry.rotatedFiles() where fm.fileExists(atPath: url.path) {
             try fm.trashItem(at: url, resultingItemURL: nil)
         }
         try store.delete()
+        let strayKey = paths.enrollment.deletingLastPathComponent().appendingPathComponent("dev.key")
+        if fm.fileExists(atPath: strayKey.path) { try fm.removeItem(at: strayKey) }
         payload = nil
         storeLoad = .empty
         controller.update(recognition: RecognitionContext(gallery: Gallery(), thresholds: .uncalibrated))

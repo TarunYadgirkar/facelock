@@ -60,12 +60,16 @@ struct SomeoneElseView: View {
         } actions: {
             switch check.phase {
             case .intro, .failed:
-                Button(standalone ? "Cancel" : "Skip") { onDone() }.buttonStyle(SecondaryButtonStyle())
+                Button(standalone ? "Cancel" : "Skip") { onDone() }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
                 Button("Start (10 s)") { Task { await check.start() } }
                     .buttonStyle(PrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
             case .capturing:
-                EmptyView()
+                Button("Stop") { check.stop() }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
             case .done:
                 Button(standalone ? "Done" : "Continue") { onDone() }
                     .buttonStyle(PrimaryButtonStyle())
@@ -111,12 +115,25 @@ struct TeachView: View {
         } actions: {
             switch teach.phase {
             case .intro, .failed:
-                Button("Cancel") { onDone() }.buttonStyle(SecondaryButtonStyle())
+                if teach.mode == .light {
+                    Button("Don't Remind Me") {
+                        teach.dismissLightPrompt()
+                        onDone()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+                Button("Cancel") { onDone() }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
                 Button("Start") { Task { await teach.start() } }
                     .buttonStyle(PrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
-            case .authenticating, .capturing:
+            case .authenticating:
                 EmptyView()
+            case .capturing:
+                Button("Stop") { teach.stop() }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
             case .done:
                 Button("Done") { onDone() }
                     .buttonStyle(PrimaryButtonStyle())

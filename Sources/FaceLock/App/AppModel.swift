@@ -22,14 +22,15 @@ final class AppModel {
     @ObservationIgnored let countdownUI = CountdownController()
     @ObservationIgnored let demoScene = DemoScene()
     @ObservationIgnored private(set) var controller: WatchController!
-    @ObservationIgnored private let checks = SwitchableChecks()
+    @ObservationIgnored let checks = SwitchableChecks()
     @ObservationIgnored private var systemEvents: SystemEventMonitor?
-    @ObservationIgnored private var cameraMonitor: CameraAvailabilityMonitor?
     @ObservationIgnored private var powerMonitor: PowerMonitor?
-    @ObservationIgnored private(set) var pipeline: FacePipeline?
-    @ObservationIgnored private var watchCamera: CameraSession?
-    @ObservationIgnored private var storedCamera: StoredImageCamera?
+    @ObservationIgnored private var systemEnvironment: SystemEnvironment?
+    @ObservationIgnored var pipeline: FacePipeline?
+    @ObservationIgnored let camera = WatchCameraState()
     @ObservationIgnored private var countdownTicker: Timer?
+    /// Setup screens holding the camera; the watcher pauses while any does.
+    @ObservationIgnored private var setupHolders = 0
     /// Read by notifications on the watcher's queue, so it can't live on the main actor.
     @ObservationIgnored private let soundFlag = LockedFlag()
 
@@ -40,6 +41,8 @@ final class AppModel {
     var payload: EnrollmentPayload?
     var storeLoad: StoreLoad = .empty
     var loginItem: LoginItemState = .notRegistered
+    var loginItemError: String?
+    var notificationAccess: NotificationAccess = .unavailable
     var legacy = LegacyInstall()
     var engine: EngineState = .loading
     var cameraAccess: CameraAccess = .notDetermined
@@ -54,8 +57,7 @@ final class AppModel {
         self.options = options
         paths = AppPaths.resolve(options)
         prefs = Preferences(persistent: !options.isDemo)
-        let keys: KeyStore = options.isDemo ? InMemoryKeyStore() : KeyStores.standard()
-        store = EnrollmentStore(url: paths.enrollment, keys: keys)
+        store = EnrollmentStore(url: paths.enrollment, keys: paths.makeKeyStore())
         telemetry = TelemetryLog(url: paths.log)
         let s = prefs.watcher
         settings = s
@@ -68,9 +70,15 @@ final class AppModel {
 
     func start() {
         soundFlag.value = settings.sound
-        let environment: WatchEnvironment = options.neverLocks
-            ? DryRunAppEnvironment(presenter: countdownUI) { [weak self] text in Task { @MainActor in self?.note(text) } }
-            : SystemEnvironment(notifier: notifier, presenter: countdownUI) { [soundFlag] in soundFlag.value }
+        let environment: WatchEnvironment
+        if options.neverLocks {
+            environment = DryRunAppEnvironment(presenter: countdownUI) { [weak self] text in Task { @MainActor in self?.note(text) } }
+        } else {
+            let system = SystemEnvironment(notifier: notifier, presenter: countdownUI) { [soundFlag] in soundFlag.value }
+            systemEnvironment = system
+            environment = system
+        }
+        telemetry.pruneInBackground(now: Date())
         controller = WatchController(settings: settings, recognition: RecognitionContext(gallery: Gallery(), thresholds: .uncalibrated),
                                      checks: checks, environment: environment, telemetry: telemetry)
         countdownUI.onHere = { [weak self] in self?.controller.send(.userInput) }
@@ -82,19 +90,42 @@ final class AppModel {
         detectLegacy()
         refreshLoginItem()
         cameraAccess = Self.currentCameraAccess(demo: options.isDemo)
-        hasCamera = options.isDemo || CameraSession.defaultDevice() != nil
+        hasCamera = options.isDemo || CameraSession.preferredDevice() != nil
         refreshBlock()
         // A demo never uses the camera, so it ignores screen lock and sleep: it keeps watching the
         // stored photo even while the screen is locked (snapshots and measurements run that way).
-        if !options.isDemo, SessionState.current().screenIsLocked { controller.send(.screenLocked) }
+        let locked = !options.isDemo && SessionState.current().screenIsLocked
+        if locked { controller.send(.screenLocked) }
         controller.send(.start)
-        if let p = Pause.restored(prefs.pause, now: Date()) { controller.send(.pause(p)) }
+        if let p = Pause.restored(prefs.pause, now: Date(), screenLocked: locked) {
+            controller.send(.pause(p))
+        } else {
+            prefs.pause = nil
+        }
         controller.send(.powerSourceChanged(onBattery: PowerSource.isOnBattery))
         if !options.isDemo {
-            systemEvents = SystemEventMonitor { [weak self] e in Task { @MainActor in self?.controller.send(e) } }
+            systemEvents = SystemEventMonitor { [weak self] e in Task { @MainActor in self?.systemEvent(e) } }
+            watchForCameraArrivals()
+            Task { await askForNotificationsAtLaunch() }
         }
-        powerMonitor = PowerMonitor { [weak self] battery in self?.controller.send(.powerSourceChanged(onBattery: battery)) }
+        powerMonitor = PowerMonitor { [weak self] battery in
+            self?.controller.send(.powerSourceChanged(onBattery: battery))
+            self?.systemEnvironment?.powerSourceChanged(onBattery: battery)
+        }
         Task { await loadEngine() }
+    }
+
+    private func systemEvent(_ e: WatcherEvent) {
+        controller.send(e)
+        if e == .screenUnlocked { retryKeyIfNeeded() }
+    }
+
+    /// A keychain that refused the key (locked, a prompt dismissed) gets another try at each unlock
+    /// and whenever the menu opens.
+    func retryKeyIfNeeded() {
+        guard storeLoad == .keyUnavailable else { return }
+        loadStore()
+        refreshBlock()
     }
 
     static func currentCameraAccess(demo: Bool) -> CameraAccess {
@@ -126,30 +157,6 @@ final class AppModel {
         }
     }
 
-    /// The watcher's camera: configured once, stopped between checks. Only after access is
-    /// granted, so creating it never raises the permission prompt.
-    func configureWatchCamera() {
-        guard let pipeline, !checks.isSet else { return }
-        if let url = options.demoCamera {
-            guard let cam = try? StoredImageCamera(image: url) else { return }
-            storedCamera = cam
-            demoScene.observe { present in try? cam.show(present ? url : nil) }
-            checks.set(CheckRunner(source: cam, pipeline: pipeline))
-            return
-        }
-        guard cameraAccess == .authorized else { return }
-        do {
-            let cam = try CameraSession()
-            watchCamera = cam
-            checks.set(CheckRunner(source: cam, pipeline: pipeline))
-            cameraMonitor = CameraAvailabilityMonitor(device: cam.device) { [weak self] ok in
-                Task { @MainActor in self?.controller.send(.cameraAvailable(ok)) }
-            }
-        } catch {
-            hasCamera = false
-        }
-    }
-
     /// Blocks the watcher with the most basic reason it cannot run, or lets it run. Until the
     /// models and the camera are ready it stays blocked, so no check can start against nothing.
     func refreshBlock() {
@@ -164,14 +171,14 @@ final class AppModel {
         }
     }
 
-    /// Camera access can be turned on in System Settings while FaceLock runs; read it again
-    /// whenever the menu or setup opens instead of polling.
+    /// Camera access can be turned on in System Settings, and a camera plugged in, while FaceLock
+    /// runs; read both again whenever the menu or setup opens instead of polling.
     func refreshCameraAccess() {
-        let now = Self.currentCameraAccess(demo: options.isDemo)
-        guard now != cameraAccess else { return }
-        cameraAccess = now
-        configureWatchCamera()
+        cameraAccess = Self.currentCameraAccess(demo: options.isDemo)
+        if !checks.isSet { configureWatchCamera() }
+        retryKeyIfNeeded()
         refreshBlock()
+        Task { await refreshNotificationAccess() }
     }
 
     func loadStore() {
@@ -189,9 +196,11 @@ final class AppModel {
     private func apply(_ s: WatcherState) {
         guard s != state else { return }
         let pauseChanged = s.pause != state.pause
+        let newCameraFailure = s.cameraFailures > state.cameraFailures
         state = s
         if pauseChanged { prefs.pause = s.pause }
         updateCountdownTicker()
+        if newCameraFailure { cameraKeepsFailing(s.cameraFailures) }
     }
 
     /// The menu glyph's ring drains only while a countdown is up: the one timer besides the watcher's.
@@ -230,8 +239,20 @@ final class AppModel {
     func pause(_ choice: PauseChoice) { controller.send(.pause(choice.pause(from: Date()))) }
     func resume() { controller.send(.resume) }
     func checkNow() { controller.send(.checkNow) }
-    func beginSetup() { controller.send(.setupStarted) }
-    func endSetup() { controller.send(.setupEnded) }
+
+    /// A setup screen takes the camera. Each screen holds its own token, so two overlapping screens
+    /// keep the watcher paused until the last one lets go.
+    func beginSetup() -> SetupHold {
+        setupHolders += 1
+        if setupHolders == 1 { controller.send(.setupStarted) }
+        return SetupHold { [weak self] in self?.endSetup() }
+    }
+
+    private func endSetup() {
+        guard setupHolders > 0 else { return }
+        setupHolders -= 1
+        if setupHolders == 0 { controller.send(.setupEnded) }
+    }
 
     var canCheckNow: Bool {
         state.isActive && state.activeWindow == nil && [.present, .looking, .stranger].contains(state.watchState)
@@ -260,6 +281,43 @@ final class AppModel {
 
     func setLoginItem(_ on: Bool) {
         guard !options.isDemo else { return }
-        loginItem = LoginItem().set(on)
+        let result = LoginItem().set(on)
+        loginItem = result.state
+        loginItemError = result.error == nil ? nil : LoginItemState.registerFailed
+    }
+
+    // MARK: notifications
+
+    func refreshNotificationAccess() async {
+        guard !options.isDemo else { return }
+        notificationAccess = await notifier.access()
+    }
+
+    func requestNotifications() async {
+        guard !options.isDemo else { return }
+        _ = await notifier.requestAuthorization()
+        await refreshNotificationAccess()
+    }
+
+    /// Someone who finished setup but never saw the prompt (closed the window early) gets it once.
+    private func askForNotificationsAtLaunch() async {
+        await refreshNotificationAccess()
+        guard isEnrolled, notificationAccess == .notDetermined else { return }
+        await requestNotifications()
+    }
+}
+
+/// One setup screen's hold on the camera. `end()` is safe to call more than once.
+@MainActor
+final class SetupHold {
+    private var release: (() -> Void)?
+
+    init(_ release: @escaping () -> Void) {
+        self.release = release
+    }
+
+    func end() {
+        release?()
+        release = nil
     }
 }

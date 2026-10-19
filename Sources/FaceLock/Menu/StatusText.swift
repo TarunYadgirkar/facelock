@@ -33,7 +33,7 @@ struct StatusText: Equatable {
 
     static func pill(_ s: WatchState) -> String {
         switch s {
-        case .present: return "Protected"
+        case .present: return "Watching"
         case .checking: return "Checking"
         case .looking: return "Looking"
         case .stranger: return "Not you"

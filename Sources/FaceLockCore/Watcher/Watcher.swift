@@ -73,12 +73,16 @@ private struct Step {
         case .screenLocked: changeAvailability { $0.suppressions.insert(.screenLocked) }
         case .screenUnlocked: screenUnlocked()
         case .displaySlept: changeAvailability { $0.suppressions.insert(.displayAsleep) }
-        case .displayWoke: changeAvailability { $0.suppressions.remove(.displayAsleep) }
+        // Whoever wakes the display gets the normal miss and countdown sequence at once, not a
+        // full interval first; a pause that ended during sleep ends now.
+        case .displayWoke: wake(.displayAsleep)
         case .systemWillSleep: changeAvailability { $0.suppressions.insert(.systemAsleep) }
-        case .systemDidWake: changeAvailability { $0.suppressions.remove(.systemAsleep) }
+        case .systemDidWake: wake(.systemAsleep)
         case let .cameraAvailable(ok):
-            changeAvailability { s in
-                if ok { s.suppressions.remove(.cameraUnavailable) } else { s.suppressions.insert(.cameraUnavailable) }
+            if ok {
+                changeAvailability(immediate: true) { $0.suppressions.remove(.cameraUnavailable) }
+            } else {
+                changeAvailability { $0.suppressions.insert(.cameraUnavailable) }
             }
         case .setupStarted: changeAvailability { $0.suppressions.insert(.setup) }
         case .setupEnded: changeAvailability(immediate: true) { $0.suppressions.remove(.setup) }
@@ -126,7 +130,17 @@ private struct Step {
 
     mutating func endCountdownUI() {
         s.countdownEndsAt = nil
+        s.checkingShown = false
         effects += [.hideCountdown, .stopInputMonitor]
+    }
+
+    /// Swaps the countdown for "Checking for you" while the confirm check runs, so the panel
+    /// never vanishes right before a lock.
+    mutating func showChecking() {
+        s.countdownEndsAt = nil
+        s.checkingShown = true
+        let ends = now.addingTimeInterval(WindowPolicy.recheck.maxOnTime)
+        effects += [.stopInputMonitor, .showCountdown(endsAt: ends, reason: .checking)]
     }
 
     mutating func lock() {
@@ -139,6 +153,7 @@ private struct Step {
     mutating func backToWatching() {
         s.phase = .present
         s.misses = 0
+        s.lockFailed = false
         s.lastOwnerSeen = now
         schedule(after: s.cadence.interval)
     }
@@ -148,7 +163,13 @@ private struct Step {
     mutating func timerFired() {
         s.nextCheckAt = nil
         if let p = s.pause {
-            if p.isExpired(at: now.addingTimeInterval(0.5)) { changeAvailability(immediate: true) { $0.pause = nil } }
+            if p.isExpired(at: now.addingTimeInterval(0.5)) {
+                changeAvailability(immediate: true) { $0.pause = nil }
+            } else if case let .until(end) = p {
+                // Fired early, e.g. after the clock moved back: wait for the end again.
+                s.nextCheckAt = end
+                effects.append(.schedule(at: end))
+            }
             return
         }
         guard s.isActive, s.activeWindow == nil else { return }
@@ -173,12 +194,30 @@ private struct Step {
         guard let w = s.activeWindow, w.id == id else { return }
         s.activeWindow = nil
         effects.append(.record(.check(summary, kind: w.kind, at: now)))
+        if summary.verdict == .cameraFailed { return cameraFailed(w.kind) }
+        s.cameraFailures = 0
         switch w.kind {
         case .regular, .recheck, .manual: afterCheck(summary)
         case .countdown: afterCountdown(summary)
-        case .confirm: summary.verdict == .owner ? backToWatching() : lock()
+        case .confirm:
+            endCountdownUI()
+            summary.verdict == .owner ? backToWatching() : lock()
         case .challenge: afterChallenge(summary)
         }
+    }
+
+    /// A window without a usable frame says nothing about the owner: no miss, no lock. The
+    /// countdown (if any) stands down, and the same check is retried with backoff.
+    mutating func cameraFailed(_ kind: CheckKind) {
+        s.cameraFailures += 1
+        switch kind {
+        case .countdown, .confirm, .challenge:
+            endCountdownUI()
+            s.phase = .looking
+        case .regular, .recheck, .manual:
+            s.phase = s.misses > 0 ? .looking : .present
+        }
+        schedule(after: Cadence.cameraRetryDelay(failures: s.cameraFailures))
     }
 
     mutating func afterCheck(_ summary: WindowSummary) {
@@ -196,6 +235,7 @@ private struct Step {
     mutating func ownerSeen(_ summary: WindowSummary) {
         s.phase = .present
         s.misses = 0
+        s.lockFailed = false
         s.lastOwnerSeen = now
         s.secondFaceWindows = summary.secondFace ? s.secondFaceWindows + 1 : 0
         if !summary.secondFace { s.someoneElseInView = false }
@@ -231,14 +271,18 @@ private struct Step {
     }
 
     mutating func afterCountdown(_ summary: WindowSummary) {
-        endCountdownUI()
         if summary.verdict == .owner {
+            endCountdownUI()
             effects.append(.record(.cancel(.owner, at: now)))
             return backToWatching()
         }
-        guard summary.sawFace else { return lock() }
+        guard summary.sawFace else {
+            endCountdownUI()
+            return lock()
+        }
         effects.append(.record(.cancel(.face, at: now)))
         s.phase = .confirming(.face)
+        showChecking()
         begin(.confirm)
     }
 
@@ -252,28 +296,41 @@ private struct Step {
         guard s.phase == .countdown, s.activeWindow != nil else { return }
         s.activeWindow = nil
         effects.append(.abortWindow)
-        endCountdownUI()
         effects.append(.record(.cancel(.input, at: now)))
         s.phase = .confirming(.input)
+        showChecking()
         begin(.confirm)
     }
 
+    /// After a lock that took, the screen-locked notice follows at once. After one that didn't
+    /// (or a dry run's pretend lock) the owner is still away, so FaceLock keeps looking.
     mutating func lockResult(_ outcome: LockOutcome) {
         effects.append(.record(.lock(outcome, at: now)))
-        if outcome != .locked { effects.append(.notify(.lockFailed(outcome))) }
+        if outcome.isFailure { effects.append(.notify(.lockFailed(outcome))) }
         guard s.phase == .locking else { return }
-        s.phase = .present
         s.misses = 0
+        s.lockFailed = outcome.isFailure
+        s.phase = outcome == .locked ? .present : .looking
         if s.isActive { schedule(after: outcome == .locked ? s.cadence.interval : s.cadence.recheckInterval) }
     }
 
     mutating func screenUnlocked() {
+        let t = now
         changeAvailability {
             $0.suppressions.remove(.screenLocked)
             $0.strangerOrUnclearSinceUnlock = false
-            if $0.pause == .untilUnlock { $0.pause = nil }
+            $0.lockFailed = false
+            if $0.pause == .untilUnlock || $0.pause?.isExpired(at: t) == true { $0.pause = nil }
         }
         s.lastOwnerSeen = now
+    }
+
+    mutating func wake(_ suppression: Suppression) {
+        let t = now
+        changeAvailability(immediate: true) {
+            $0.suppressions.remove(suppression)
+            if $0.pause?.isExpired(at: t) == true { $0.pause = nil }
+        }
     }
 
     mutating func pause(_ p: Pause) {
@@ -299,7 +356,7 @@ private struct Step {
 
     mutating func stopEverything() {
         if s.activeWindow != nil { effects.append(.abortWindow) }
-        if s.countdownEndsAt != nil { endCountdownUI() }
+        if s.countdownEndsAt != nil || s.checkingShown { endCountdownUI() }
         s.activeWindow = nil
         s.nextCheckAt = nil
         s.phase = .present

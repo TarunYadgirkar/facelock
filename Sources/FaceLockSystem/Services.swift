@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import FaceLockCore
 import Foundation
@@ -5,16 +6,27 @@ import LocalAuthentication
 import Security
 import UserNotifications
 
-/// The enrollment key in the login keychain, this device only, readable while unlocked.
+/// The enrollment key in the login keychain (the file-based keychain macOS keeps per user).
+/// FaceLock reads it without a prompt while you are logged in. macOS ignores "this device only"
+/// for this keychain, so the item can travel with the keychain to a new Mac; the enrollment file
+/// itself is excluded from Time Machine.
 public final class KeychainKeyStore: KeyStore, @unchecked Sendable {
     public static let service = "com.tarunyadgirkar.facelock.enrollment"
-    private let account: String
+    public static let defaultAccount = "enrollment.v2"
+    public let account: String
     private let interactive: Bool
 
-    /// `interactive: false` never shows a keychain prompt (a tool reading the app's item fails instead).
-    public init(account: String = "enrollment.v2", interactive: Bool = true) {
+    /// `interactive: false` never shows a keychain prompt: a tool reading the app's item fails
+    /// at once with `KeyStoreError.unavailable` instead.
+    public init(account: String = KeychainKeyStore.defaultAccount, interactive: Bool = true) {
         self.account = account
         self.interactive = interactive
+    }
+
+    /// A key of its own for a `--data-dir` run, so deleting that run's data never touches the real key.
+    public static func account(forDataDirectory dir: URL) -> String {
+        let digest = SHA256.hash(data: Data(dir.standardizedFileURL.path.utf8))
+        return defaultAccount + "." + digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     private var query: [String: Any] {
@@ -25,41 +37,53 @@ public final class KeychainKeyStore: KeyStore, @unchecked Sendable {
     public func loadKey() throws -> SymmetricKey? {
         var q = query
         q[kSecReturnData as String] = true
-        if !interactive {
+        var out: CFTypeRef?
+        let status = interactive ? SecItemCopyMatching(q as CFDictionary, &out) : Self.withoutPrompts {
             let ctx = LAContext()
             ctx.interactionNotAllowed = true
             q[kSecUseAuthenticationContext as String] = ctx
+            return SecItemCopyMatching(q as CFDictionary, &out)
         }
-        var out: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &out)
-        guard status == errSecSuccess, let data = out as? Data, data.count == 32 else { return nil }
-        return SymmetricKey(data: data)
+        switch status {
+        case errSecSuccess:
+            guard let data = out as? Data, data.count == 32 else { throw KeyStoreError.corrupt }
+            return SymmetricKey(data: data)
+        case errSecItemNotFound:
+            return nil
+        default:
+            throw KeyStoreError.unavailable(status)
+        }
     }
 
+    /// Adds the key; an existing item is never overwritten.
     public func saveKey(_ key: SymmetricKey) throws {
-        SecItemDelete(query as CFDictionary)
         var q = query
         q[kSecValueData as String] = key.withUnsafeBytes { Data($0) }
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let status = SecItemAdd(q as CFDictionary, nil)
-        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+        if status == errSecDuplicateItem { throw KeyStoreError.exists }
+        guard status == errSecSuccess else { throw KeyStoreError.unavailable(status) }
     }
 
     public func deleteKey() throws {
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeyStoreError.unavailable(status) }
+    }
+
+    /// The file-based keychain ignores LAContext.interactionNotAllowed for its access-control
+    /// prompt ("facelock-bench wants to use your confidential information"); this switch is the
+    /// one that makes it fail instead of asking.
+    private static func withoutPrompts(_ body: () -> OSStatus) -> OSStatus {
+        var allowed: DarwinBoolean = true
+        SecKeychainGetUserInteractionAllowed(&allowed)
+        SecKeychainSetUserInteractionAllowed(false)
+        defer { SecKeychainSetUserInteractionAllowed(allowed.boolValue) }
+        return body()
     }
 }
 
-public enum KeyStores {
-    /// The login keychain for Developer ID builds; a 0600 file for ad-hoc DEBUG builds, whose
-    /// changing signature would make every keychain read prompt.
-    public static func standard() -> KeyStore {
-        #if DEBUG
-        FileKeyStore(url: EnrollmentStore.defaultURL.deletingLastPathComponent().appendingPathComponent("dev.key"))
-        #else
-        KeychainKeyStore()
-        #endif
-    }
+public enum NotificationAccess: Sendable, Equatable {
+    /// A bare binary without a bundle can't post at all.
+    case unavailable, notDetermined, allowed, denied
 }
 
 /// Banners attributed to FaceLock. Needs a bundled app; a bare CLI gets nothing.
@@ -72,6 +96,22 @@ public final class Notifier: @unchecked Sendable {
 
     public func requestAuthorization() async -> Bool {
         (try? await center?.requestAuthorization(options: [.alert, .sound])) ?? false
+    }
+
+    public func access() async -> NotificationAccess {
+        guard let center else { return .unavailable }
+        switch await center.notificationSettings().authorizationStatus {
+        case .notDetermined: return .notDetermined
+        case .denied: return .denied
+        default: return .allowed
+        }
+    }
+
+    /// System Settings > Notifications > FaceLock.
+    public static func openSettings() {
+        let id = Bundle.main.bundleIdentifier ?? "com.tarunyadgirkar.facelock"
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     public func post(title: String, body: String, sound: Bool) {

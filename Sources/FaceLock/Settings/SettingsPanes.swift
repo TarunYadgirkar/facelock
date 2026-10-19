@@ -35,11 +35,39 @@ struct GeneralPane: View {
                     Text("Notifications")
                     Text("When someone else is in view or a face stays still. A lock that fails always notifies.")
                 }
+                NotificationAccessRow()
                 Toggle("Play a sound when the countdown starts", isOn: $model.settings.sound)
             }
             Section {
                 LoginItemToggle()
             }
+        }
+        .task { await model.refreshNotificationAccess() }
+    }
+}
+
+/// What macOS allows, under the Notifications toggle: a lock failure can only reach you when
+/// FaceLock may post.
+struct NotificationAccessRow: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch model.notificationAccess {
+        case .denied:
+            HStack(spacing: Space.s) {
+                Text("Notifications are off for FaceLock, so a failed lock can't reach you.")
+                    .font(Typeface.caption).foregroundStyle(Theme.warning)
+                Button("Open Notification Settings") { Notifier.openSettings() }
+                    .buttonStyle(.link).font(Typeface.caption)
+            }
+        case .notDetermined:
+            HStack(spacing: Space.s) {
+                Text("FaceLock hasn't asked to post notifications yet.").font(Typeface.caption).foregroundStyle(.secondary)
+                Button("Allow Notifications") { Task { await model.requestNotifications() } }
+                    .buttonStyle(.link).font(Typeface.caption)
+            }
+        case .allowed, .unavailable:
+            EmptyView()
         }
     }
 }
@@ -121,9 +149,9 @@ struct ThresholdValues: View {
 
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: Space.l, verticalSpacing: Space.xs) {
-            row("Accept at (T)", thresholds.accept, "Your calibrated threshold")
-            row("Floor (F)", thresholds.floor, "Never below this, from the benchmark")
-            row("Stranger (S)", thresholds.stranger, "At or below this, a clear face is a stranger")
+            row("Your threshold", thresholds.accept, "A match at or above this is you")
+            row("Lowest allowed", thresholds.floor, "Your threshold never goes below this, from the benchmark")
+            row("Clearly someone else", thresholds.stranger, "A clear face at or below this is a stranger")
         }
         .font(Typeface.body)
     }
@@ -147,18 +175,25 @@ struct PrivacyPane: View {
     var body: some View {
         Form {
             Section("What FaceLock stores") {
-                StoredRow(title: "Face templates", detail: "Encrypted with a key in your login keychain. Numbers, not pictures.",
-                          path: EnrollmentStore.defaultURL.path)
-                StoredRow(title: "Check log", detail: "One line per check: camera time, scores and the verdict. No images.",
-                          path: TelemetryLog.defaultURL.path)
-                Text(model.options.isDemo || model.options.dataDirectory != nil
-                     ? "This run keeps its files in a separate folder instead, and no camera frame is ever saved."
-                     : "No camera frame is ever saved, and nothing leaves this Mac.")
+                StoredRow(title: "Face templates", detail: keyText, path: model.paths.enrollment.path)
+                StoredRow(title: "Check log", detail: "One line per check: camera time, scores and the verdict. No images. Kept 30 days.",
+                          path: model.paths.log.path)
+                Text(model.paths.isRelease
+                     ? "No camera frame is ever saved, and nothing leaves this Mac."
+                     : "This run keeps its files in its own folder, shown above, and no camera frame is ever saved.")
                     .font(Typeface.caption).foregroundStyle(.secondary)
             }
             Section("Last 7 days") {
                 if let summary {
-                    LabeledContent("Locks", value: summary.text.replacingOccurrences(of: "Locks: ", with: ""))
+                    LabeledContent("Locks", value: "\(summary.locks)")
+                    LabeledContent("Countdowns you stopped", value: "\(summary.countdownsStopped)")
+                    if summary.failedLocks > 0 {
+                        LabeledContent {
+                            Text("\(summary.failedLocks)").foregroundStyle(Theme.warning)
+                        } label: {
+                            Text("Locks that failed").foregroundStyle(Theme.warning)
+                        }
+                    }
                     LabeledContent("Checks", value: "\(summary.checks)")
                     LabeledContent("Camera on per check while you're here",
                                    value: summary.medianPresentOnTime.map { String(format: "%.2f s median", $0) } ?? "No checks yet")
@@ -185,10 +220,19 @@ struct PrivacyPane: View {
         }
     }
 
+    private var keyText: String {
+        switch model.paths.key {
+        case .memory: return "Encrypted with a key that lives only in memory for this run. Numbers, not pictures."
+        case .file: return "Encrypted with a key in a file in the same folder (a development or test run). Numbers, not pictures."
+        case .keychain: return "Encrypted with a key in your login keychain, which FaceLock reads without a prompt while you're "
+            + "logged in. Numbers, not pictures. Time Machine skips this file."
+        }
+    }
+
     private func act(_ f: () throws -> Void) {
         do {
             try f()
-            message = "Moved to the Trash."
+            message = "Moved to the Trash. Empty the Trash to remove it for good."
             summary = model.telemetry.weeklySummary()
         } catch {
             message = "That didn't work: \(error.localizedDescription)"

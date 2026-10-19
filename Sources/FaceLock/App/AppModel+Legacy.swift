@@ -24,7 +24,8 @@ enum LegacyItem: String, CaseIterable, Identifiable, Sendable {
         case .loginItem: return "It starts the old version at login. FaceLock removes it and moves its file to the Trash."
         case .launcher: return "The 8 KB launcher for the old version. FaceLock moves it to the Trash."
         case .config: return "Imports how often to check, sound and notifications from ~/.config/facelock/config.toml."
-        case .enrollment: return "The new recognizer can't read it. FaceLock moves enrollment.npz to the Trash."
+        case .enrollment: return "This is your old face data, stored unencrypted, and the new recognizer can't read it. "
+            + "FaceLock moves enrollment.npz to the Trash, where it stays readable until you empty the Trash."
         }
     }
 
@@ -60,6 +61,13 @@ extension AppModel {
     }
 
     var setupLegacyItems: [LegacyItem] { legacyItems.filter { $0 != .enrollment } }
+
+    /// Deletes the old unencrypted face data for good instead of moving it to the Trash. Only after
+    /// the owner confirms.
+    func deleteLegacyEnrollmentPermanently() throws {
+        if let npz = legacy.enrollment { try FileManager.default.removeItem(at: npz) }
+        detectLegacy()
+    }
 
     func perform(_ item: LegacyItem) async throws {
         let fm = FileManager.default

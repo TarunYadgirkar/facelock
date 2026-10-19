@@ -97,19 +97,7 @@ private struct PoseCell: View {
         .accessibilityLabel("\(label): \(isSkipped ? "skipped" : "\(Int(progress * 100)) percent")\(isCurrent ? ", now" : "")")
     }
 
-    private var label: String {
-        switch target {
-        case .centre: return "Centre"
-        case .left: return "Left"
-        case .right: return "Right"
-        case .up: return "Up"
-        case .down: return "Down"
-        case .closer: return "Closer"
-        case .farther: return "Back"
-        case .leaningBack: return "Reading"
-        case .glasses: return "Glasses"
-        }
-    }
+    private var label: String { target.label }
 
     private var symbol: String {
         switch target {

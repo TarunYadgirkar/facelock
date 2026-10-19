@@ -14,6 +14,11 @@ public enum LockOutcome: String, Codable, Sendable {
     /// The lock call did not take; the display slept instead (locks only with "require password immediately").
     case displaySleptOnly = "display_slept_only"
     case failed
+    /// `--dry-run` and demos: logged instead of locking.
+    case dryRun = "dry_run"
+
+    /// The Mac should have locked and did not.
+    public var isFailure: Bool { self == .failed || self == .displaySleptOnly }
 }
 
 /// One line of ~/Library/Logs/FaceLock/checks.jsonl. No images, no embeddings.
@@ -37,6 +42,9 @@ public struct CheckRecord: Codable, Equatable, Sendable {
     public var cancel: CancelCause?
     public var outcome: LockOutcome?
     public var note: String?
+    /// The camera's frame size, so a stream that isn't 640x480 shows up in the log.
+    public var frameSize: String?
+    public var failedFrames: Int?
 
     public init(at: Date, event: Event, kind: CheckKind? = nil) {
         self.at = at
@@ -55,6 +63,8 @@ public struct CheckRecord: Codable, Equatable, Sendable {
         r.anchorScore = s.bestAnchorScore
         r.quality = s.qualityFlags.names
         r.verdict = s.verdict
+        r.frameSize = s.frameSize?.text
+        r.failedFrames = s.failedFrames > 0 ? s.failedFrames : nil
         return r
     }
 

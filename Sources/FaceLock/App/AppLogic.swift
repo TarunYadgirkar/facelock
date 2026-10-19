@@ -16,6 +16,7 @@ enum Protection {
         switch store {
         case .empty: return .noEnrollment
         case .needsReenroll: return .needsReenroll
+        case .keyUnavailable: return .keyUnavailable
         case .loaded: break
         }
         return camera == .notDetermined ? .cameraAccessOff : nil
@@ -32,7 +33,7 @@ enum PauseChoice: String, CaseIterable, Identifiable, Sendable {
         case .fifteenMinutes: return "15 minutes"
         case .oneHour: return "1 hour"
         case .untilUnlock: return "Until I unlock"
-        case .untilTomorrow: return "Until tomorrow"
+        case .untilTomorrow: return "Until tomorrow morning"
         }
     }
 
@@ -46,27 +47,35 @@ enum PauseChoice: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// The countdown panel's words. Moving the mouse only buys one more look, so the card never
+/// promises that it keeps the Mac unlocked.
 enum CountdownCopy {
     static func title(_ reason: CountdownReason, secondsLeft: Int) -> String {
         switch reason {
         case .away: return "Locking in \(secondsLeft) s"
         case .headTurn: return "Turn your head"
+        case .checking: return "Checking for you…"
         }
     }
 
     static func detail(_ reason: CountdownReason) -> String {
         switch reason {
-        case .away: return "Look at the camera or move the mouse to stay unlocked."
+        case .away: return "Look at the camera to stay unlocked. Moving the mouse gives FaceLock one more look."
         case .headTurn: return "A face has stayed perfectly still for minutes. Turn your head left or right to stay unlocked."
+        case .checking: return "Look at the camera. If FaceLock doesn't see you, it locks without another countdown."
         }
     }
 
     static func announcement(_ reason: CountdownReason, seconds: Int) -> String {
         switch reason {
-        case .away: return "FaceLock is locking your Mac in \(seconds) seconds. Look at the camera or move the mouse to stay unlocked."
+        case .away: return "FaceLock is locking your Mac in \(seconds) seconds. Look at the camera to stay unlocked."
         case .headTurn: return "FaceLock needs you to turn your head within \(seconds) seconds to stay unlocked."
+        case .checking: return "FaceLock is checking for you. Look at the camera to stay unlocked."
         }
     }
+
+    /// What "I'm here" does, for VoiceOver.
+    static let hereHint = "FaceLock takes one more look. If it doesn't see you, it locks."
 }
 
 enum CadenceCopy {

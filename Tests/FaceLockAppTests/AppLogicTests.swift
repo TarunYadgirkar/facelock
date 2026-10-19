@@ -1,4 +1,6 @@
+import CryptoKit
 import FaceLockCore
+import FaceLockSystem
 import Foundation
 import Testing
 @testable import FaceLock
@@ -31,17 +33,46 @@ struct AppLogicTests {
         #expect(LaunchOptions.parse(["FaceLock", "--dry-run"]).neverLocks)
     }
 
-    @Test("a demo run never touches the real enrollment or log")
+    @Test("a demo run never touches the real enrollment, log or key")
     func demoPaths() {
         let p = AppPaths.resolve(LaunchOptions.parse(["FaceLock", "--demo-camera", "/tmp/a.jpg"]))
         #expect(p.enrollment != EnrollmentStore.defaultURL)
         #expect(p.log != TelemetryLog.defaultURL)
+        #expect(p.key == .memory)
         let real = AppPaths.resolve(LaunchOptions.parse(["FaceLock"]))
-        #expect(real.enrollment == EnrollmentStore.defaultURL)
-        #expect(real.log == TelemetryLog.defaultURL)
+        #expect(real == AppPaths.standard)
         let dry = AppPaths.resolve(LaunchOptions.parse(["FaceLock", "--dry-run"]))
-        #expect(dry.enrollment == EnrollmentStore.defaultURL)
-        #expect(dry.log != TelemetryLog.defaultURL)
+        #expect(dry.enrollment == AppPaths.standard.enrollment)
+        #expect(dry.log != AppPaths.standard.log)
+        #expect(AppPaths.release.enrollment == EnrollmentStore.defaultURL)
+        #expect(AppPaths.release.key == .keychain(account: KeychainKeyStore.defaultAccount))
+    }
+
+    @Test("a DEBUG build keeps its enrollment and its file key out of the release folder")
+    func debugPaths() {
+        #expect(AppPaths.debug.enrollment.deletingLastPathComponent() != EnrollmentStore.defaultURL.deletingLastPathComponent())
+        #expect(AppPaths.debug.log.deletingLastPathComponent() != TelemetryLog.defaultURL.deletingLastPathComponent())
+        guard case let .file(key) = AppPaths.debug.key else { return #expect(Bool(false)) }
+        #expect(key.deletingLastPathComponent() == AppPaths.debug.enrollment.deletingLastPathComponent())
+        #expect(AppPaths.isDebugBuild ? AppPaths.standard == AppPaths.debug : AppPaths.standard == AppPaths.release)
+    }
+
+    @Test("a --data-dir run has a key of its own: deleting its data leaves the default key in place")
+    func dataDirKey() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("fl-datadir-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let p = AppPaths.resolve(LaunchOptions.parse(["FaceLock", "--data-dir", root.appendingPathComponent("run").path]))
+        #expect(p.key != AppPaths.standard.key)
+        #expect(p.key != AppPaths.release.key)
+        #expect(KeychainKeyStore.account(forDataDirectory: root) != KeychainKeyStore.defaultAccount)
+        // The same check end to end with file keys: the run's delete removes only its own key.
+        let standardKey = FileKeyStore(url: root.appendingPathComponent("standard/dev.key"))
+        try standardKey.saveKey(SymmetricKey(size: .bits256))
+        let run = EnrollmentStore(url: p.enrollment, keys: AppPaths.isDebugBuild ? p.makeKeyStore()
+                                    : FileKeyStore(url: root.appendingPathComponent("run/dev.key")))
+        try run.save(EnrollmentPayload(templates: [], thresholds: .uncalibrated, calibration: nil))
+        try run.delete()
+        #expect(try standardKey.loadKey() != nil)
     }
 
     @Test("status splits into a headline and a detail, with the next check while watching")
@@ -54,7 +85,7 @@ struct AppLogicTests {
         s.lastOwnerSeen = now.addingTimeInterval(-4)
         s.nextCheckAt = now.addingTimeInterval(26)
         let t = StatusText.make(s, line: s.status(now: now), now: now)
-        #expect(t.pill == "Protected")
+        #expect(t.pill == "Watching")
         #expect(t.headline == "Watching")
         #expect(t.detail == "You were here 4 s ago. Next check in 26 s.")
     }
@@ -67,6 +98,37 @@ struct AppLogicTests {
         #expect(PauseChoice.untilUnlock.pause(from: now) == .untilUnlock)
         guard case let .until(end) = PauseChoice.untilTomorrow.pause(from: now) else { return #expect(Bool(false)) }
         #expect(end > now && end <= now.addingTimeInterval(86_400))
+        #expect(Calendar.current.component(.hour, from: end) == Pause.morningHour)
+    }
+
+    @Test("a pause into tomorrow says so")
+    func pauseText() {
+        let cal = Calendar.current
+        let now = cal.date(from: DateComponents(year: 2026, month: 10, day: 18, hour: 21))!
+        let morning = cal.date(from: DateComponents(year: 2026, month: 10, day: 19, hour: 6))!
+        var s = WatcherState()
+        s.pause = .until(morning)
+        #expect(s.status(now: now).text.hasPrefix("Paused until tomorrow, "))
+        s.pause = .until(now.addingTimeInterval(3600))
+        #expect(!s.status(now: now).text.contains("tomorrow"))
+    }
+
+    @Test("countdown copy never promises that moving the mouse keeps the Mac unlocked")
+    func countdownCopy() {
+        #expect(CountdownCopy.detail(.away) == "Look at the camera to stay unlocked. Moving the mouse gives FaceLock one more look.")
+        #expect(CountdownCopy.announcement(.away, seconds: 10) == "FaceLock is locking your Mac in 10 seconds. Look at the camera to stay unlocked.")
+        #expect(!CountdownCopy.announcement(.away, seconds: 10).contains("mouse"))
+    }
+
+    @Test("pose labels use one name per look, and the glasses hint says what to do")
+    func poseLabels() {
+        #expect(EnrollmentTarget.farther.label == "Farther")
+        #expect(EnrollmentTarget.leaningBack.label == "Lean back")
+        #expect(EnrollmentTarget.label(forStored: "leaning_back") == "Lean back")
+        #expect(EnrollmentTarget.label(forStored: "teach") == "Taught look")
+        #expect(EnrollmentTarget.glasses.title.hasPrefix("Take your glasses off"))
+        #expect(EnrollmentModel.announcement(done: .centre, next: .left) == "Centre done. Next: turn a little to your left.")
+        #expect(EnrollmentModel.announcement(done: .glasses, next: nil) == "All looks captured. Save My Face is ready.")
     }
 
     @Test("Add today's light shows half a day after a single-session enrollment, until done")
@@ -145,6 +207,13 @@ struct AppLogicTests {
             #expect(img.size == Glyphs.size)
             #expect(img.accessibilityDescription?.hasPrefix("FaceLock") == true)
         }
+        #expect(Glyphs.description(.lookingForYou(checksLeft: 1)) == "FaceLock: looking for you, 1 check left")
+        #expect(Glyphs.description(.lookingForYou(checksLeft: 2)) == "FaceLock: looking for you, 2 checks left")
+    }
+
+    @Test("Settings states the worst case as a ceiling, like the README")
+    func graceWording() {
+        #expect(CadenceCopy.summary(.balanced, countdownSeconds: 10) == "Checks every 30 s. Locks within 62 s after you leave.")
     }
 
     @Test("legacy config import maps cadence, sound and notify only")

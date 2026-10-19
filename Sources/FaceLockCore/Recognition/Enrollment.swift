@@ -12,9 +12,34 @@ public enum EnrollmentTarget: String, Codable, Sendable, CaseIterable {
         case .up: return "Tilt your head up a little"
         case .down: return "Tilt your head down a little"
         case .closer: return "Move closer"
-        case .farther: return "Move back"
+        case .farther: return "Move farther from the camera"
         case .leaningBack: return "Lean back as if reading"
-        case .glasses: return "Glasses on, or off if you wear them"
+        case .glasses: return "Take your glasses off for a moment (or put them on if you only wear them sometimes)"
+        }
+    }
+
+    /// The short name on the pose map and in the calibration report.
+    public var label: String {
+        switch self {
+        case .centre: return "Centre"
+        case .left: return "Left"
+        case .right: return "Right"
+        case .up: return "Up"
+        case .down: return "Down"
+        case .closer: return "Closer"
+        case .farther: return "Farther"
+        case .leaningBack: return "Lean back"
+        case .glasses: return "Glasses"
+        }
+    }
+
+    /// The label for a template's stored target, which can also be a taught look.
+    public static func label(forStored target: String) -> String {
+        if let t = EnrollmentTarget(rawValue: target) { return t.label }
+        switch target {
+        case "teach": return "Taught look"
+        case "light": return "Today's light"
+        default: return target.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 

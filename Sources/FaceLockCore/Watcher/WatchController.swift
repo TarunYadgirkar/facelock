@@ -109,9 +109,10 @@ public final class WatchController: @unchecked Sendable {
             }
         case .abortWindow: checks.abortWindow()
         case let .schedule(at):
+            // Wall time keeps counting while the Mac sleeps, so a pause still ends on time after a nap.
             let delay = max(0, at.timeIntervalSince(clock()))
             let leeway = DispatchTimeInterval.milliseconds(Int(min(1000, max(50, delay * 50))))
-            timer.schedule(deadline: .now() + delay, repeating: .never, leeway: leeway)
+            timer.schedule(wallDeadline: .now() + delay, repeating: .never, leeway: leeway)
         case .cancelSchedule: timer.schedule(deadline: .distantFuture)
         case let .showCountdown(endsAt, reason): environment.showCountdown(endsAt: endsAt, reason: reason)
         case .hideCountdown: environment.hideCountdown()
@@ -159,7 +160,7 @@ public final class DryRunEnvironment: WatchEnvironment, @unchecked Sendable {
 
     public func lock(completion: @escaping @Sendable (LockOutcome) -> Void) {
         note("would lock the screen")
-        completion(.locked)
+        completion(.dryRun)
     }
 
     public func secondsSinceInput() -> TimeInterval? { nil }

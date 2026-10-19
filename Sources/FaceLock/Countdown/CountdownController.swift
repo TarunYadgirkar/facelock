@@ -12,6 +12,8 @@ final class CountdownPanel: NSPanel {
 
 /// The countdown before a lock: a dim over every screen that deepens from 15% to 35%, and a card
 /// at the top of the main screen. Shown and hidden by the watcher through `CountdownPresenter`.
+/// "Checking for you" replaces the countdown during the one more look, without the dim. With no
+/// screen attached nothing is drawn; the watcher's countdown runs the same.
 @MainActor
 final class CountdownController: CountdownPresenter {
     static let startDim: CGFloat = 0.15
@@ -22,23 +24,25 @@ final class CountdownController: CountdownPresenter {
     var onHere: () -> Void = {}
     var soundOn: () -> Bool = { false }
 
+    // The main queue runs these in the order the watcher sent them; a Task each would not promise that.
     nonisolated func show(endsAt: Date, reason: CountdownReason) {
-        Task { @MainActor in self.present(endsAt: endsAt, reason: reason) }
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.present(endsAt: endsAt, reason: reason) } }
     }
 
     nonisolated func hide() {
-        Task { @MainActor in self.dismiss() }
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.dismiss() } }
     }
 
     private func present(endsAt: Date, reason: CountdownReason) {
         dismiss()
         let total = max(1, endsAt.timeIntervalSinceNow)
-        dims = NSScreen.screens.map { dimWindow(on: $0, over: total) }
-        let panel = cardPanel(endsAt: endsAt, total: total, reason: reason)
-        card = panel
-        panel.orderFrontRegardless()
+        if reason != .checking { dims = NSScreen.screens.map { dimWindow(on: $0, over: total) } }
+        if let panel = cardPanel(endsAt: endsAt, total: total, reason: reason) {
+            card = panel
+            panel.orderFrontRegardless()
+        }
         announce(reason, seconds: Int(total.rounded()))
-        if soundOn() { NSSound(named: "Tink")?.play() }
+        if soundOn(), reason != .checking { NSSound(named: "Tink")?.play() }
     }
 
     private func dismiss() {
@@ -68,12 +72,12 @@ final class CountdownController: CountdownPresenter {
         return w
     }
 
-    private func cardPanel(endsAt: Date, total: TimeInterval, reason: CountdownReason) -> CountdownPanel {
+    private func cardPanel(endsAt: Date, total: TimeInterval, reason: CountdownReason) -> CountdownPanel? {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
         let view = CountdownCard(endsAt: endsAt, total: total, reason: reason) { [weak self] in self?.onHere() }
             .padding(Space.xxl)
         let host = NSHostingView(rootView: view)
         let size = host.fittingSize
-        let screen = NSScreen.main ?? NSScreen.screens[0]
         let origin = NSPoint(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.maxY - size.height - 48)
         let p = CountdownPanel(contentRect: NSRect(origin: origin, size: size),
                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

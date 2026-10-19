@@ -20,10 +20,10 @@ final class CameraTimingModel {
         running = true
         done = 0
         error = nil
-        app.beginSetup()
+        let hold = app.beginSetup()
         defer {
             running = false
-            app.endSetup()
+            hold.end()
         }
         do {
             let source: FrameSource = try app.options.demoCamera.map { try StoredImageCamera(image: $0) } ?? CameraSession()

@@ -41,13 +41,26 @@ public enum StoreLoad: Equatable, Sendable {
     case empty
     case loaded(EnrollmentPayload)
     case needsReenroll(ReenrollReason)
+    /// The key exists but the keychain would not hand it over right now; try again later.
+    case keyUnavailable
 }
 
 public enum StoreError: Error, Equatable {
     case badHeader, newerSchema(Int), noMigration(Int)
 }
 
-/// Where the 256-bit file key lives: the login keychain for Developer ID builds, a file under DEBUG.
+public enum KeyStoreError: Error, Equatable {
+    /// The store would not hand the key over now (keychain locked, a refused prompt): retry later.
+    case unavailable(Int32)
+    /// A key is stored but is not a 256-bit key, so it cannot decrypt anything.
+    case corrupt
+    /// Saving would replace an existing key; only an explicit delete may remove one.
+    case exists
+}
+
+/// Where the 256-bit file key lives: the login keychain for release builds, a file for DEBUG and
+/// separate data folders. `loadKey` returns nil only when there is no key, and `saveKey` never
+/// replaces one, so a passing keychain error can never cost the owner their enrollment.
 public protocol KeyStore: AnyObject, Sendable {
     func loadKey() throws -> SymmetricKey?
     func saveKey(_ key: SymmetricKey) throws
@@ -63,7 +76,14 @@ public final class InMemoryKeyStore: KeyStore, @unchecked Sendable {
     }
 
     public func loadKey() throws -> SymmetricKey? { lock.withLock { key } }
-    public func saveKey(_ key: SymmetricKey) throws { lock.withLock { self.key = key } }
+
+    public func saveKey(_ key: SymmetricKey) throws {
+        try lock.withLock {
+            guard self.key == nil else { throw KeyStoreError.exists }
+            self.key = key
+        }
+    }
+
     public func deleteKey() throws { lock.withLock { key = nil } }
 }
 
@@ -76,11 +96,15 @@ public final class FileKeyStore: KeyStore, @unchecked Sendable {
     }
 
     public func loadKey() throws -> SymmetricKey? {
-        guard let d = try? Data(contentsOf: url), d.count == 32 else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let d: Data
+        do { d = try Data(contentsOf: url) } catch { throw KeyStoreError.unavailable(-1) }
+        guard d.count == 32 else { throw KeyStoreError.corrupt }
         return SymmetricKey(data: d)
     }
 
     public func saveKey(_ key: SymmetricKey) throws {
+        guard !FileManager.default.fileExists(atPath: url.path) else { throw KeyStoreError.exists }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         try SecureFile.write(key.withUnsafeBytes { Data($0) }, to: url)
@@ -164,7 +188,15 @@ public final class EnrollmentStore: @unchecked Sendable {
 
     public func load() -> StoreLoad {
         guard let data = try? Data(contentsOf: url) else { return .empty }
-        guard let key = try? keys.loadKey() else { return .needsReenroll(.keyMissing) }
+        let stored: SymmetricKey?
+        do {
+            stored = try keys.loadKey()
+        } catch KeyStoreError.corrupt {
+            return .needsReenroll(.keyMissing)
+        } catch {
+            return .keyUnavailable
+        }
+        guard let key = stored else { return .needsReenroll(.keyMissing) }
         do {
             let p = try EnrollmentCodec.decode(data, key: key)
             return p.modelID == ModelCalibration.modelID ? .loaded(p) : .needsReenroll(.otherModel)
@@ -175,17 +207,31 @@ public final class EnrollmentStore: @unchecked Sendable {
         }
     }
 
+    /// Encrypts under the existing key, or a new one when there is none. A key the store will not
+    /// hand over right now makes this throw rather than replace it.
     public func save(_ p: EnrollmentPayload) throws {
         let key: SymmetricKey
-        if let existing = try keys.loadKey() {
-            key = existing
-        } else {
-            key = SymmetricKey(size: .bits256)
-            try keys.saveKey(key)
+        do {
+            key = try keys.loadKey() ?? newKey()
+        } catch KeyStoreError.corrupt {
+            // A key that is not 256 bits decrypts nothing, so replacing it loses nothing.
+            try keys.deleteKey()
+            key = try newKey()
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         try SecureFile.write(try EnrollmentCodec.encode(p, key: key), to: url)
+        // Time Machine skips it: the templates stay on this Mac, not in its backups.
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var target = url
+        try? target.setResourceValues(values)
+    }
+
+    private func newKey() throws -> SymmetricKey {
+        let key = SymmetricKey(size: .bits256)
+        try keys.saveKey(key)
+        return key
     }
 
     public func delete() throws {

@@ -9,6 +9,7 @@ enum Glyphs {
     private static let stroke: CGFloat = 1.6
     private static let frame = NSRect(x: 2, y: 2, width: 14, height: 14)
     private static let arm: CGFloat = 4.5
+    private static let slashInset: CGFloat = 3.5
 
     @MainActor private static var cache: [String: NSImage] = [:]
 
@@ -39,7 +40,7 @@ enum Glyphs {
         switch glyph {
         case .watching: return "FaceLock: watching"
         case .checking: return "FaceLock: checking"
-        case let .lookingForYou(n): return "FaceLock: looking for you, \(n) checks left"
+        case let .lookingForYou(n): return "FaceLock: looking for you, \(n) check\(n == 1 ? "" : "s") left"
         case .countdown: return "FaceLock: locking soon"
         case .someoneElse: return "FaceLock: someone else is in view"
         case .paused: return "FaceLock: paused"
@@ -75,10 +76,12 @@ enum Glyphs {
             bar(x: centre.x - 2.2)
             bar(x: centre.x + 2.2)
         case .notProtecting:
+            // Top left to bottom right, stopping short of the corners, so it reads as "off" and
+            // never as the corner arrows of "enter full screen".
             corners()
             let p = NSBezierPath()
-            p.move(to: NSPoint(x: frame.minX + 1, y: frame.minY + 1))
-            p.line(to: NSPoint(x: frame.maxX - 1, y: frame.maxY - 1))
+            p.move(to: NSPoint(x: frame.minX + slashInset, y: frame.maxY - slashInset))
+            p.line(to: NSPoint(x: frame.maxX - slashInset, y: frame.minY + slashInset))
             p.lineWidth = stroke
             p.lineCapStyle = .round
             p.stroke()

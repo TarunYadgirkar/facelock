@@ -13,7 +13,11 @@ struct CountdownCard: View {
         TimelineView(.animation(minimumInterval: reduceMotion ? 1 : 1 / 30, paused: false)) { context in
             let left = max(0, endsAt.timeIntervalSince(context.date))
             HStack(alignment: .center, spacing: Space.l + 4) {
-                dial(left: left)
+                if reason == .checking {
+                    ProgressView().controlSize(.large).frame(width: 104, height: 104).accessibilityHidden(true)
+                } else {
+                    dial(left: left)
+                }
                 VStack(alignment: .leading, spacing: Space.xs + 2) {
                     Text(CountdownCopy.title(reason, secondsLeft: Int(left.rounded(.up))))
                         .font(Typeface.title)
@@ -26,6 +30,7 @@ struct CountdownCard: View {
                         Button("I'm here", action: onHere)
                             .buttonStyle(PrimaryButtonStyle())
                             .keyboardShortcut(.defaultAction)
+                            .accessibilityHint(CountdownCopy.hereHint)
                             .padding(.top, Space.xs)
                     }
                 }

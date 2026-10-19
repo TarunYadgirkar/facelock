@@ -5,21 +5,26 @@ import FaceLockSystem
 import Foundation
 
 /// A fixed-length capture on a setup screen: the camera runs for `seconds`, every analysed frame
-/// goes to `onFrame`, and the progress ring follows the clock.
+/// goes to `onFrame`, and the progress ring follows the clock. `stop()` ends it early.
 @MainActor
 final class TimedCapture {
     private var capture: LiveCapture?
     private(set) var cameraSession: CameraSession?
+    private var stopRequested = false
 
+    func stop() { stopRequested = true }
+
+    /// True when the capture ran its full length, false when it was stopped.
     func run(app: AppModel, seconds: TimeInterval, recognition: RecognitionContext?,
              progress: @escaping @MainActor (Double) -> Void,
-             onFrame: @escaping @MainActor @Sendable (LiveFrame) -> Void) async throws {
-        app.beginSetup()
+             onFrame: @escaping @MainActor @Sendable (LiveFrame) -> Void) async throws -> Bool {
+        stopRequested = false
+        let hold = app.beginSetup()
         defer {
             capture?.stop()
             capture = nil
             cameraSession = nil
-            app.endSetup()
+            hold.end()
         }
         let source = try app.makeSetupSource()
         cameraSession = source as? CameraSession
@@ -29,10 +34,12 @@ final class TimedCapture {
         c.start { frame in Task { @MainActor in onFrame(frame) } }
         let start = Date()
         while Date().timeIntervalSince(start) < seconds {
+            if stopRequested { return false }
             progress(Date().timeIntervalSince(start) / seconds)
             try await Task.sleep(for: .milliseconds(100))
         }
         progress(1)
+        return true
     }
 }
 
@@ -56,14 +63,21 @@ final class SomeoneElseModel {
 
     var cameraSession: CameraSession? { runner.cameraSession }
 
+    func stop() { runner.stop() }
+
     func start() async {
         guard let app, let recognition = app.payload?.recognition else { return }
         check = SomeoneElseCheck()
         phase = .capturing
         do {
-            try await runner.run(app: app, seconds: SomeoneElseCheck.seconds, recognition: recognition,
-                                 progress: { [weak self] in self?.progress = $0 },
-                                 onFrame: { [weak self] f in self?.offer(f) })
+            let finished = try await runner.run(app: app, seconds: SomeoneElseCheck.seconds, recognition: recognition,
+                                                progress: { [weak self] in self?.progress = $0 },
+                                                onFrame: { [weak self] f in self?.offer(f) })
+            guard finished else {
+                phase = .intro
+                progress = 0
+                return
+            }
             let best = check.maxScore
             let report = try best.flatMap { try app.applySomeoneElse(maxScore: $0) }
             phase = .done(raised: report?.raisedForSomeoneElse ?? false, best: best)
@@ -113,6 +127,11 @@ final class TeachModel {
     var cameraSession: CameraSession? { runner.cameraSession }
     var seconds: TimeInterval { mode == .look ? TeachSession.seconds : TeachSession.lightSeconds }
 
+    func stop() { runner.stop() }
+
+    /// "Don't Remind Me" on Add today's light: the menu stops offering it.
+    func dismissLightPrompt() { app?.prefs.lightPromptDismissed = true }
+
     func start() async {
         guard let app, let p = app.payload else { return }
         phase = .authenticating
@@ -127,9 +146,15 @@ final class TeachModel {
         sessionNumber = DayTwo.nextSession(p.gallery)
         phase = .capturing
         do {
-            try await runner.run(app: app, seconds: seconds, recognition: p.recognition,
-                                 progress: { [weak self] in self?.progress = $0 },
-                                 onFrame: { [weak self] f in self?.offer(f) })
+            let finished = try await runner.run(app: app, seconds: seconds, recognition: p.recognition,
+                                                progress: { [weak self] in self?.progress = $0 },
+                                                onFrame: { [weak self] f in self?.offer(f) })
+            guard finished else {
+                phase = .intro
+                progress = 0
+                captured = 0
+                return
+            }
             guard let session else { return }
             phase = .done(try app.finishTeach(session))
             if mode == .light { app.prefs.lightPromptDismissed = true }

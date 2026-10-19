@@ -52,18 +52,39 @@ public final class FacePipeline: @unchecked Sendable {
         self.quality = quality
     }
 
-    /// Camera path: a full BGRA frame (640x480 from the capture preset), scaled into the detector input.
+    /// Camera path: a full BGRA frame (640x480 from the capture settings), scaled into the detector
+    /// input. Any other aspect is centre-cropped to 4:3 first, never stretched, so faces keep the
+    /// proportions they were enrolled with (N6).
     public func analyze(frame: vImage_Buffer, recognition: RecognitionContext?,
                         options: AnalysisOptions = .runtime) throws -> FrameAnalysis {
         let t0 = millisNow()
-        detector.scale(from: frame)
+        let r = Self.detectorRegion(width: Int(frame.width), height: Int(frame.height))
+        var region = frame
+        region.data = frame.data.advanced(by: r.y * frame.rowBytes + r.x * 4)
+        region.width = vImagePixelCount(r.width)
+        region.height = vImagePixelCount(r.height)
+        detector.scale(from: region)
         let scaleTime = millisNow() - t0
-        let sx = Double(frame.width) / FaceDetector.frameWidth, sy = Double(frame.height) / FaceDetector.frameHeight
-        let a = try analyzePrepared(source: frame, toSource: { Point2D($0.x * sx, $0.y * sy) },
+        let sx = Double(r.width) / FaceDetector.frameWidth, sy = Double(r.height) / FaceDetector.frameHeight
+        let ox = Double(r.x), oy = Double(r.y)
+        let a = try analyzePrepared(source: frame, toSource: { Point2D($0.x * sx + ox, $0.y * sy + oy) },
                                     recognition: recognition, options: options)
         var times = a.times
         times.detect += scaleTime
         return FrameAnalysis(observation: a.observation, detectedFaces: a.detectedFaces, times: times)
+    }
+
+    /// The largest centred 4:3 region of a `width` x `height` frame.
+    public static func detectorRegion(width w: Int, height h: Int) -> (x: Int, y: Int, width: Int, height: Int) {
+        if w * 3 > h * 4 {
+            let cw = h * 4 / 3
+            return ((w - cw) / 2, 0, cw, h)
+        }
+        if w * 3 < h * 4 {
+            let ch = w * 3 / 4
+            return (0, (h - ch) / 2, w, ch)
+        }
+        return (0, 0, w, h)
     }
 
     /// The detector input is already filled. `toSource` maps detector output (640x480 frame pixels)

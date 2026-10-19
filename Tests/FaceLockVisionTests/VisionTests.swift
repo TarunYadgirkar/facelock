@@ -154,6 +154,30 @@ struct VisionTests {
         #expect(r50.neuralEngineCostShare >= 0.95)
     }
 
+    @Test("a 16:9 frame is centre-cropped to 4:3, not stretched: the same face embeds and measures the same (N6)")
+    func wideFrame() throws {
+        let p = try FacePipeline()
+        let img = try ImageFile.load(Fixtures.grace)
+        // The 640x480 scene at 1.5x in the middle of a 1280x720 frame, grey on both sides.
+        let wide = BGRABuffer(width: 1280, height: 720)
+        wide.fill(gray: 90)
+        let s = min(960.0 / Double(img.width), 720.0 / Double(img.height))
+        let w = Double(img.width) * s, h = Double(img.height) * s
+        wide.context().draw(img, in: CGRect(x: 160 + (960 - w) / 2, y: (720 - h) / 2, width: w, height: h))
+        func face(_ b: BGRABuffer) throws -> FaceObservation {
+            let a = try b.withVImage { try p.analyze(frame: $0, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true)) }
+            return try #require(a.observation.faces.first)
+        }
+        let narrow = try face(try Fixtures.frame()), cropped = try face(wide)
+        #expect(cosine(try #require(narrow.embedding), try #require(cropped.embedding)) >= 0.99)
+        #expect(abs(narrow.face.landmarks.interOcular - cropped.face.landmarks.interOcular) < 1.5)
+        #expect(abs(narrow.face.landmarks.yawProxy - cropped.face.landmarks.yawProxy) < 0.02)
+        let r = FacePipeline.detectorRegion(width: 1280, height: 720)
+        #expect(r.x == 160 && r.y == 0 && r.width == 960 && r.height == 720)
+        let tall = FacePipeline.detectorRegion(width: 640, height: 640)
+        #expect(tall.x == 0 && tall.y == 80 && tall.width == 640 && tall.height == 480)
+    }
+
     @Test("Vision capture quality is available for enrollment")
     func captureQuality() throws {
         let frame = try Fixtures.frame()
@@ -171,16 +195,67 @@ final class Box<T>: @unchecked Sendable {
     var value: T? { lock.withLock { v } }
 }
 
+/// A camera that never sends a frame: suspended, dead, or held by a fault.
+final class SilentCamera: FrameSource, @unchecked Sendable {
+    func start(queue: DispatchQueue, handler: @escaping @Sendable (CapturedFrame) -> Void) {}
+    func stop() {}
+}
+
+/// A camera whose first frame comes `delay` seconds after it starts.
+final class SlowCamera: FrameSource, @unchecked Sendable {
+    private let inner: StoredImageCamera
+    private let delay: Double
+    private let lock = NSLock()
+    private var generation = 0
+
+    init(_ inner: StoredImageCamera, delay: Double) {
+        self.inner = inner
+        self.delay = delay
+    }
+
+    func start(queue: DispatchQueue, handler: @escaping @Sendable (CapturedFrame) -> Void) {
+        let g = lock.withLock { generation += 1; return generation }
+        queue.asyncAfter(deadline: .now() + delay) { [self] in
+            guard lock.withLock({ generation == g }) else { return }
+            inner.start(queue: queue, handler: handler)
+        }
+    }
+
+    func stop() {
+        lock.withLock { generation += 1 }
+        inner.stop()
+    }
+}
+
 @Suite("Check windows on the stored-image camera", .serialized, .enabled(if: Fixtures.modelsPresent, "models/ is absent; run tools/convert_models.py"))
 struct CheckRunnerTests {
-    func runWindow(image: URL, gallery: (FacePipeline) throws -> Gallery, policy: WindowPolicy = .regular) async throws -> WindowSummary {
+    func runWindow(image: URL, gallery: (FacePipeline) throws -> Gallery, policy: WindowPolicy = .regular,
+                   source: ((StoredImageCamera) -> FrameSource)? = nil) async throws -> WindowSummary {
         let p = try FacePipeline()
-        let runner = CheckRunner(source: try StoredImageCamera(image: image), pipeline: p)
+        let camera = try StoredImageCamera(image: image)
+        let runner = CheckRunner(source: source?(camera) ?? camera, pipeline: p)
         let r = RecognitionContext(gallery: try gallery(p), thresholds: Thresholds(accept: 0.5))
         let out = Box<WindowSummary>()
         runner.startWindow(id: 1, kind: .regular, policy: policy, recognition: r) { _, s in out.set(s) }
-        for _ in 0..<60 where out.value == nil { try await Task.sleep(for: .milliseconds(50)) }
+        for _ in 0..<120 where out.value == nil { try await Task.sleep(for: .milliseconds(50)) }
         return try #require(out.value)
+    }
+
+    @Test("a camera that never sends a frame is a camera failure, not an empty room")
+    func silent() async throws {
+        let s = try await runWindow(image: Fixtures.grace, gallery: ownerGallery) { _ in SilentCamera() }
+        #expect(s.verdict == .cameraFailed)
+        #expect(s.timing.firstFrame == nil)
+        #expect(s.frames == 0)
+        #expect(s.timing.cameraOn >= WindowPolicy.openTimeout)
+    }
+
+    @Test("a first frame after 2.4 s still finds the owner: settle and duration count from it")
+    func slowOpen() async throws {
+        let s = try await runWindow(image: Fixtures.grace, gallery: ownerGallery) { SlowCamera($0, delay: 2.4) }
+        #expect(s.verdict == .owner)
+        #expect((s.timing.firstFrame ?? 0) >= 2.4)
+        #expect(s.frameSize == FrameSize(width: 640, height: 480))
     }
 
     func ownerGallery(_ p: FacePipeline) throws -> Gallery {

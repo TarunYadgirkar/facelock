@@ -37,6 +37,9 @@ public final class SystemEnvironment: WatchEnvironment, @unchecked Sendable {
         }
     }
 
+    /// Drops the stay-awake assertion on battery and takes it again on AC while still locked.
+    public func powerSourceChanged(onBattery: Bool) { stayAwake.powerSourceChanged(onBattery: onBattery) }
+
     public func secondsSinceInput() -> TimeInterval? { IdleTime.secondsSinceInput() }
 
     public func notify(_ notice: Notice) {

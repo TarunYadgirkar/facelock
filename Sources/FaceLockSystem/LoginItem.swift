@@ -14,9 +14,12 @@ public enum LoginItemState: Equatable, Sendable {
         switch self {
         case .enabled, .notRegistered: return nil
         case .requiresApproval: return "Approve in System Settings > General > Login Items"
-        case .notFound: return "FaceLock can't register as a login item from this location"
+        case .notFound: return "Move FaceLock to the Applications folder, then turn this on."
         }
     }
+
+    /// When macOS refuses to register: almost always an app run from Downloads or the disk image.
+    public static let registerFailed = "macOS didn't add FaceLock to Login Items. Move FaceLock to Applications and try again."
 }
 
 public protocol LoginService: AnyObject {
@@ -46,15 +49,16 @@ public final class LoginItem {
 
     public var state: LoginItemState { Self.map(service.status) }
 
-    /// Registers or unregisters, then reports what macOS says rather than what was asked.
+    /// Registers or unregisters, then reports what macOS says rather than what was asked, with
+    /// the error when macOS refused.
     @discardableResult
-    public func set(_ on: Bool) -> LoginItemState {
+    public func set(_ on: Bool) -> (state: LoginItemState, error: Error?) {
         do {
             if on { try service.register() } else { try service.unregister() }
         } catch {
-            return state
+            return (state, error)
         }
-        return state
+        return (state, nil)
     }
 
     public static func openLoginItemsSettings() {

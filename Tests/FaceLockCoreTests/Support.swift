@@ -49,12 +49,15 @@ func ownerSample(_ face: DetectedFace = frontalFace(), faces: Int = 1) -> OwnerS
 
 func summary(_ v: WindowVerdict, secondFace: Bool = false, owner: OwnerSample? = nil, yawRange: Double? = nil,
              faces: Int? = nil, onTime: Double = 0.4) -> WindowSummary {
-    let count = faces ?? (v == .away ? 0 : 1)
-    return WindowSummary(verdict: v, frames: 3, ownerFrames: v == .owner ? 1 : 0, strangerFrames: v == .stranger ? 2 : 0,
-                         unclearFrames: v == .unclear ? 1 : 0, noFaceFrames: v == .away ? 3 : 0, maxFaceCount: count,
-                         bestScore: v == .away ? nil : 0.5, bestAnchorScore: v == .away ? nil : 0.5, qualityFlags: [],
+    let noFace = v == .away || v == .cameraFailed
+    let count = faces ?? (noFace ? 0 : 1)
+    return WindowSummary(verdict: v, frames: v == .cameraFailed ? 0 : 3, ownerFrames: v == .owner ? 1 : 0,
+                         strangerFrames: v == .stranger ? 2 : 0, unclearFrames: v == .unclear ? 1 : 0,
+                         noFaceFrames: v == .away ? 3 : 0, maxFaceCount: count,
+                         bestScore: noFace ? nil : 0.5, bestAnchorScore: noFace ? nil : 0.5, qualityFlags: [],
                          secondFace: secondFace, owner: v == .owner ? (owner ?? ownerSample()) : nil, yawRange: yawRange,
-                         timing: WindowTiming(cameraOn: onTime, firstFrame: 0.05, settled: 0.2))
+                         timing: v == .cameraFailed ? WindowTiming(cameraOn: 3.25, firstFrame: nil, settled: nil)
+                             : WindowTiming(cameraOn: onTime, firstFrame: 0.05, settled: 0.2))
 }
 
 /// Feeds events to the reducer and keeps the state and the effects of the last step.

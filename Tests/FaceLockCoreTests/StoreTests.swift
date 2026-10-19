@@ -156,7 +156,8 @@ struct TelemetryTests {
         let s = log.weeklySummary(now: now)
         #expect(s.locks == 1)
         #expect(s.cancelledByOwner == 1 && s.cancelledByInput == 1)
-        #expect(s.text == "Locks: 1 (2 cancelled by you)")
+        #expect(s.countdownsStopped == 2)
+        #expect(s.failedLocks == 0)
         #expect(s.medianPresentOnTime == 0.4)
     }
 
@@ -167,5 +168,120 @@ struct TelemetryTests {
         log.flush()
         #expect(!log.rotatedFiles().isEmpty)
         #expect(log.records(since: .distantPast).count == 10)
+    }
+}
+
+/// A key store whose keychain is out of reach for now, then back.
+final class FlakyKeyStore: KeyStore, @unchecked Sendable {
+    private let inner = InMemoryKeyStore()
+    var reachable = true
+    var saves = 0
+
+    func loadKey() throws -> SymmetricKey? {
+        guard reachable else { throw KeyStoreError.unavailable(-25308) }
+        return try inner.loadKey()
+    }
+
+    func saveKey(_ key: SymmetricKey) throws {
+        saves += 1
+        try inner.saveKey(key)
+    }
+
+    func deleteKey() throws { try inner.deleteKey() }
+}
+
+@Suite("Enrollment key")
+struct KeyTests {
+    @Test("a keychain that refuses for now is retryable, never a re-enroll, and saving never replaces the key")
+    func unavailableKey() throws {
+        let dir = try scratchDirectory()
+        let keys = FlakyKeyStore()
+        let store = EnrollmentStore(url: dir.appendingPathComponent("enrollment.v2"), keys: keys)
+        let p = samplePayload()
+        try store.save(p)
+        keys.reachable = false
+        #expect(store.load() == .keyUnavailable)
+        #expect(throws: KeyStoreError.unavailable(-25308)) { try store.save(p) }
+        #expect(keys.saves == 1)
+        keys.reachable = true
+        #expect(store.load() == .loaded(p))
+    }
+
+    @Test("key stores never overwrite an existing key")
+    func neverReplace() throws {
+        let mem = InMemoryKeyStore(key: SymmetricKey(size: .bits256))
+        #expect(throws: KeyStoreError.exists) { try mem.saveKey(SymmetricKey(size: .bits256)) }
+        let file = FileKeyStore(url: try scratchDirectory().appendingPathComponent("dev.key"))
+        try file.saveKey(SymmetricKey(size: .bits256))
+        #expect(throws: KeyStoreError.exists) { try file.saveKey(SymmetricKey(size: .bits256)) }
+    }
+
+    @Test("a key that isn't 256 bits asks for a re-enroll and is replaced on the next save")
+    func corruptKey() throws {
+        let dir = try scratchDirectory()
+        let keys = FileKeyStore(url: dir.appendingPathComponent("dev.key"))
+        let store = EnrollmentStore(url: dir.appendingPathComponent("enrollment.v2"), keys: keys)
+        let p = samplePayload()
+        try store.save(p)
+        try Data(repeating: 7, count: 5).write(to: keys.url)
+        #expect(store.load() == .needsReenroll(.keyMissing))
+        try store.save(p)
+        #expect(store.load() == .loaded(p))
+    }
+
+    @Test("the enrollment is excluded from Time Machine")
+    func excludedFromBackup() throws {
+        let dir = try scratchDirectory()
+        let store = EnrollmentStore(url: dir.appendingPathComponent("enrollment.v2"), keys: InMemoryKeyStore())
+        try store.save(samplePayload())
+        let values = try store.url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(values.isExcludedFromBackup == true)
+    }
+}
+
+@Suite("Telemetry retention")
+struct RetentionTests {
+    @Test("records older than 30 days go at launch, with no size-triggered rotation")
+    func pruneAtLaunch() throws {
+        let dir = try scratchDirectory()
+        let log = TelemetryLog(url: dir.appendingPathComponent("checks.jsonl"))
+        let now = Date()
+        let old = now.addingTimeInterval(-31 * 86_400)
+        let rotated = dir.appendingPathComponent("checks.\(Int(old.timeIntervalSince1970)).jsonl")
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        func line(_ r: CheckRecord) throws -> String { String(decoding: try e.encode(r), as: UTF8.self) + "\n" }
+        try (try line(.lock(.locked, at: old))).write(to: rotated, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: rotated.path)
+        try (try line(.lock(.locked, at: old)) + line(.lock(.failed, at: now.addingTimeInterval(-86_400))))
+            .write(to: log.url, atomically: true, encoding: .utf8)
+        log.prune(now: now)
+        #expect(!FileManager.default.fileExists(atPath: rotated.path))
+        let kept = log.records(since: .distantPast)
+        #expect(kept.count == 1)
+        #expect(kept.first?.outcome == .failed)
+        let mode = try FileManager.default.attributesOfItem(atPath: log.url.path)[.posixPermissions] as? NSNumber
+        #expect(mode?.intValue == 0o600)
+    }
+
+    @Test("the first write of a new day prunes too")
+    func pruneOnFirstWriteOfDay() throws {
+        let dir = try scratchDirectory()
+        let log = TelemetryLog(url: dir.appendingPathComponent("checks.jsonl"))
+        let now = Date()
+        log.record(.lock(.locked, at: now.addingTimeInterval(-40 * 86_400)))
+        log.flush()
+        log.record(.lock(.locked, at: now))
+        log.flush()
+        #expect(log.records(since: .distantPast).count == 1)
+    }
+
+    @Test("failed locks count separately from dry runs")
+    func failedLocks() {
+        let now = Date()
+        let s = TelemetrySummary([.lock(.failed, at: now), .lock(.displaySleptOnly, at: now), .lock(.dryRun, at: now),
+                                  .lock(.locked, at: now)])
+        #expect(s.locks == 1)
+        #expect(s.failedLocks == 2)
     }
 }

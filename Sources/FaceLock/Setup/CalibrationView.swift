@@ -43,7 +43,7 @@ struct CalibrationView: View {
             legend
             if !report.closeLooks.isEmpty { closeLooks }
             if report.singleSession {
-                Label("Single session. Add today's light tomorrow, so the threshold covers more than one sitting.",
+                Label("Single session. Tomorrow, add a second sitting in different light so the threshold covers more than one afternoon.",
                       systemImage: "sun.max")
                     .font(Typeface.caption)
                     .foregroundStyle(.secondary)
@@ -69,20 +69,26 @@ struct CalibrationView: View {
                               yStart: .value("Looks", 0), yEnd: .value("Looks", bin.count))
                     .foregroundStyle(Theme.accent)
             }
-            RuleMark(x: .value("Floor F", Double(report.thresholds.floor)))
+            RuleMark(x: .value("Lowest allowed", Double(report.thresholds.floor)))
                 .foregroundStyle(Theme.neutral)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-            RuleMark(x: .value("Threshold T", Double(report.thresholds.accept)))
+            RuleMark(x: .value("Your threshold", Double(report.thresholds.accept)))
                 .foregroundStyle(Color.primary)
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
                 .annotation(position: .top, alignment: .center, spacing: 2) {
-                    Text("T \(String(format: "%.2f", report.thresholds.accept))")
+                    Text("Your threshold \(String(format: "%.2f", report.thresholds.accept))")
                         .font(Typeface.caption.weight(.semibold))
                         .monospacedDigit()
                 }
         }
         .chartXScale(domain: 0...1)
-        .chartXAxis { AxisMarks(values: [0, 0.25, 0.5, 0.75, 1]) }
+        // Tick labels without grid lines, so the dashed floor is the only dashed rule on the chart.
+        .chartXAxis {
+            AxisMarks(values: [0, 0.25, 0.5, 0.75, 1]) { _ in
+                AxisTick()
+                AxisValueLabel()
+            }
+        }
         .chartYAxis { AxisMarks(position: .leading) }
         .accessibilityLabel("Histogram of your look scores against the benchmark stranger range")
     }
@@ -90,8 +96,8 @@ struct CalibrationView: View {
     private var legend: some View {
         HStack(spacing: Space.l) {
             LegendKey(color: Theme.accent, text: "Your looks")
-            LegendKey(color: Theme.neutral.opacity(0.4), text: "Benchmark strangers, up to 0.33")
-            LegendKey(color: Theme.neutral, text: "Floor F \(String(format: "%.2f", report.thresholds.floor))", dashed: true)
+            LegendKey(color: Theme.neutral.opacity(0.16), text: "Benchmark strangers, up to 0.33")
+            LegendKey(color: Theme.neutral, text: "Lowest allowed \(String(format: "%.2f", report.thresholds.floor))", dashed: true)
         }
         .font(Typeface.caption)
         .foregroundStyle(.secondary)
@@ -101,7 +107,7 @@ struct CalibrationView: View {
         VStack(alignment: .leading, spacing: Space.xs) {
             Text("Close to strangers").font(Typeface.bodyEmphasis)
             ForEach(report.closeLooks, id: \.target) { look in
-                Text("\(look.target.replacingOccurrences(of: "_", with: " ").capitalized): lowest \(String(format: "%.2f", look.lowestScore))")
+                Text("\(EnrollmentTarget.label(forStored: look.target)): lowest \(String(format: "%.2f", look.lowestScore))")
                     .font(Typeface.body)
                     .monospacedDigit()
             }

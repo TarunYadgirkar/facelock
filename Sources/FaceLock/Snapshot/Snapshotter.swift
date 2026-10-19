@@ -26,6 +26,9 @@ final class Snapshotter {
     }
 
     func run() async {
+        // App Nap would stretch the waits below and the snapshots would show later states than named.
+        let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated], reason: "Rendering snapshots")
+        defer { ProcessInfo.processInfo.endActivity(activity) }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         await render(GlyphSheet(), "ui-menu-glyphs")
         guard await wait(20, { self.model.engine != .loading }), model.engine == .ready else { return finish("models did not load") }
@@ -58,11 +61,14 @@ final class Snapshotter {
         guard await wait(60, { self.model.state.countdownEndsAt != nil }) else { return finish("never reached the countdown") }
         if let ends = model.state.countdownEndsAt {
             try? await Task.sleep(for: .seconds(2))
+            if model.state.watchState == .countdown { await render(menu(), "ui-menu-countdown") }
             await render(CountdownCard(endsAt: ends, total: Double(model.settings.countdownSeconds), reason: .away)
                 .padding(Space.xxl), "ui-countdown", background: Color(white: 0.32))
-            await render(menu(), "ui-menu-countdown")
         }
-        _ = await wait(20) { self.model.notes.contains { $0.hasPrefix("Dry run") } }
+        if await wait(20, { self.model.notes.contains { $0.hasPrefix("Dry run") } }) {
+            try? await Task.sleep(for: .milliseconds(500))
+            await render(menu(), "ui-menu-after-dry-run-lock")
+        }
         model.setDemoPresent(true)
 
         for tab in SettingsTab.allCases {

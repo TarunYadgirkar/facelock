@@ -37,7 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 Task { await Snapshotter(model: Self.model, windows: Self.windows, directory: dir).run() }
                 return
             }
-            if options.showSetup || (!Self.model.isEnrolled && !options.demoEnrolled) {
+            // A keychain that only refused for now is retried at unlock; setting up again would not help.
+            let needsSetup = !Self.model.isEnrolled && Self.model.storeLoad != .keyUnavailable && !options.demoEnrolled
+            if options.showSetup || needsSetup {
                 Self.windows.openSetup()
             }
         }

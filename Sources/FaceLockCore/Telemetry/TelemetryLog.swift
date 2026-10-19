@@ -1,7 +1,7 @@
 import Foundation
 
-/// ~/Library/Logs/FaceLock/checks.jsonl: one JSON object per line, rotated at 5 MB, rotated
-/// files kept 30 days.
+/// ~/Library/Logs/FaceLock/checks.jsonl: one JSON object per line, rotated at 5 MB. No record is
+/// kept longer than 30 days: the log is pruned at launch and on the first write of each day.
 public final class TelemetryLog: TelemetrySink, @unchecked Sendable {
     public static let defaultURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/FaceLock/checks.jsonl")
@@ -12,6 +12,8 @@ public final class TelemetryLog: TelemetrySink, @unchecked Sendable {
     private let maxBytes: Int
     private let queue = DispatchQueue(label: "com.tarunyadgirkar.facelock.telemetry", qos: .utility)
     private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+    private var prunedDay: Int?
 
     public init(url: URL = TelemetryLog.defaultURL, maxBytes: Int = TelemetryLog.maxBytes) {
         self.url = url
@@ -20,6 +22,9 @@ public final class TelemetryLog: TelemetrySink, @unchecked Sendable {
         e.dateEncodingStrategy = .iso8601
         e.outputFormatting = [.sortedKeys]
         encoder = e
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        decoder = d
     }
 
     public func record(_ r: CheckRecord) {
@@ -32,6 +37,8 @@ public final class TelemetryLog: TelemetrySink, @unchecked Sendable {
     private func write(_ r: CheckRecord) {
         guard var line = try? encoder.encode(r) else { return }
         line.append(0x0A)
+        let day = Int(r.at.timeIntervalSince1970 / 86_400)
+        if day != prunedDay { pruneOnQueue(now: r.at) }
         let fm = FileManager.default
         try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
@@ -50,15 +57,49 @@ public final class TelemetryLog: TelemetrySink, @unchecked Sendable {
         let stamp = Int(now.timeIntervalSince1970)
         let rotated = url.deletingPathExtension().appendingPathExtension("\(stamp).jsonl")
         try? fm.moveItem(at: url, to: rotated)
-        prune(now: now)
     }
 
-    /// Rotated files older than 30 days.
+    /// Drops every record older than 30 days, in rotated files and the active one.
     public func prune(now: Date) {
-        for f in rotatedFiles() {
-            let date = (try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? now
-            if now.timeIntervalSince(date) > Self.keepDays * 86_400 { try? FileManager.default.removeItem(at: f) }
+        queue.sync { pruneOnQueue(now: now) }
+    }
+
+    public func pruneInBackground(now: Date) {
+        queue.async { self.pruneOnQueue(now: now) }
+    }
+
+    private func pruneOnQueue(now: Date) {
+        prunedDay = Int(now.timeIntervalSince1970 / 86_400)
+        let cutoff = now.addingTimeInterval(-Self.keepDays * 86_400)
+        for f in rotatedFiles() + [url] { prune(f, before: cutoff) }
+    }
+
+    /// A file last written before the cutoff goes; one whose first record is older is rewritten
+    /// without the old lines. Files that are entirely recent are not touched.
+    private func prune(_ f: URL, before cutoff: Date) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: f.path) else { return }
+        let modified = (try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+        if modified < cutoff {
+            try? fm.removeItem(at: f)
+            return
         }
+        guard let first = firstRecordDate(f), first < cutoff, let text = try? String(contentsOf: f, encoding: .utf8) else { return }
+        let kept = text.split(separator: "\n").filter { line in
+            (try? decoder.decode(CheckRecord.self, from: Data(line.utf8))).map { $0.at >= cutoff } ?? false
+        }
+        if kept.isEmpty {
+            try? fm.removeItem(at: f)
+        } else {
+            try? SecureFile.write(Data((kept.joined(separator: "\n") + "\n").utf8), to: f)
+        }
+    }
+
+    private func firstRecordDate(_ f: URL) -> Date? {
+        guard let h = try? FileHandle(forReadingFrom: f) else { return nil }
+        defer { try? h.close() }
+        guard let head = try? h.read(upToCount: 4096), let end = head.firstIndex(of: 0x0A) else { return nil }
+        return (try? decoder.decode(CheckRecord.self, from: head[head.startIndex..<end]))?.at
     }
 
     public func rotatedFiles() -> [URL] {
@@ -95,7 +136,7 @@ public struct TelemetrySummary: Equatable, Sendable {
     public init(_ records: [CheckRecord]) {
         checks = records.filter { $0.event == .check }.count
         locks = records.filter { $0.event == .lock && $0.outcome == .locked }.count
-        failedLocks = records.filter { $0.event == .lock && $0.outcome != .locked }.count
+        failedLocks = records.filter { $0.event == .lock && $0.outcome?.isFailure == true }.count
         cancelledByOwner = records.filter { $0.event == .cancel && $0.cancel == .owner }.count
         cancelledByInput = records.filter { $0.event == .cancel && $0.cancel == .input }.count
         cancelledByFace = records.filter { $0.event == .cancel && $0.cancel == .face }.count
@@ -104,8 +145,6 @@ public struct TelemetrySummary: Equatable, Sendable {
         medianPresentOnTime = on.isEmpty ? nil : Stats.median(on)
     }
 
-    public var text: String {
-        let cancelled = cancelledByOwner + cancelledByInput
-        return "Locks: \(locks) (\(cancelled) cancelled by you)"
-    }
+    /// Countdowns you stopped by coming back or by moving the mouse or pressing a key.
+    public var countdownsStopped: Int { cancelledByOwner + cancelledByInput }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import FaceLockCapture
 import FaceLockCore
@@ -57,6 +58,7 @@ final class EnrollmentModel {
     @ObservationIgnored private(set) var cameraSession: CameraSession?
     @ObservationIgnored private var capture: LiveCapture?
     @ObservationIgnored private weak var app: AppModel?
+    @ObservationIgnored private var hold: SetupHold?
 
     var currentTarget: EnrollmentTarget? { session.currentTarget }
     var acceptedCount: Int { session.templates.count }
@@ -65,7 +67,7 @@ final class EnrollmentModel {
         guard phase == .idle || phase.isFailure else { return }
         self.app = app
         phase = .starting
-        app.beginSetup()
+        hold = app.beginSetup()
         do {
             let source = try app.makeSetupSource()
             cameraSession = source as? CameraSession
@@ -76,7 +78,7 @@ final class EnrollmentModel {
             c.start { [weak self] frame in Task { @MainActor in self?.handle(frame) } }
         } catch {
             phase = .failed("The camera could not start. \(error.localizedDescription)")
-            app.endSetup()
+            releaseCamera()
         }
     }
 
@@ -85,13 +87,31 @@ final class EnrollmentModel {
         capture = nil
         cameraSession = nil
         if phase == .capturing || phase == .starting { phase = .idle }
-        app?.endSetup()
+        releaseCamera()
+    }
+
+    private func releaseCamera() {
+        hold?.end()
+        hold = nil
     }
 
     func skipCurrent() {
         guard let t = currentTarget, t.isSkippable else { return }
         session = session.skipping(t)
         if session.isComplete { finish() }
+    }
+
+    /// VoiceOver hears each look complete and what comes next, since the ring is only drawn.
+    nonisolated static func announcement(done: EnrollmentTarget, next: EnrollmentTarget?) -> String {
+        guard let next else { return "All looks captured. Save My Face is ready." }
+        return "\(done.label) done. Next: \(next.title.prefix(1).lowercased() + next.title.dropFirst())."
+    }
+
+    private func announce(_ text: String) {
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+            .announcement: text,
+            .priority: NSAccessibilityPriorityLevel.high.rawValue,
+        ])
     }
 
     private func handle(_ frame: LiveFrame) {
@@ -108,6 +128,7 @@ final class EnrollmentModel {
         let now = currentTarget ?? target
         hint = now != target ? now.title
             : EnrollmentFeedback.hint(faces: frame.observation.faces.count, chips: c, rejection: rejection, target: now)
+        if currentTarget != target { announce(Self.announcement(done: target, next: currentTarget)) }
         if session.isComplete { finish() }
     }
 

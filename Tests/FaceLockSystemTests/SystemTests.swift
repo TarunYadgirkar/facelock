@@ -43,15 +43,39 @@ struct SystemTests {
     func toggleReflectsStatus() {
         let approval = FakeLoginService(status: .notRegistered, next: .requiresApproval)
         let item = LoginItem(service: approval)
-        #expect(item.set(true) == .requiresApproval)
+        #expect(item.set(true).state == .requiresApproval)
         #expect(!item.state.isOn)
         #expect(item.state.detail == "Approve in System Settings > General > Login Items")
         let failing = FakeLoginService(status: .notRegistered, next: .enabled)
         failing.fails = true
-        #expect(LoginItem(service: failing).set(true) == .notRegistered)
+        let refused = LoginItem(service: failing).set(true)
+        #expect(refused.state == .notRegistered)
+        #expect(refused.error != nil)
+        #expect(LoginItemState.registerFailed.contains("Move FaceLock to Applications"))
+        #expect(LoginItemState.notFound.detail == "Move FaceLock to the Applications folder, then turn this on.")
         let ok = FakeLoginService(status: .notRegistered, next: .enabled)
-        #expect(LoginItem(service: ok).set(true) == .enabled)
-        #expect(LoginItem(service: ok).set(false) == .notRegistered)
+        #expect(LoginItem(service: ok).set(true).state == .enabled)
+        #expect(LoginItem(service: ok).set(true).error == nil)
+        #expect(LoginItem(service: ok).set(false).state == .notRegistered)
+    }
+
+    @Test("stay awake holds only on AC: dropped on battery, taken again on AC while still locked")
+    func stayAwakeFollowsPower() {
+        let battery = FakeIdle()
+        battery.idle = 0
+        let s = StayAwake(onBattery: { battery.idle > 0 })
+        s.begin()
+        #expect(s.isHolding)
+        battery.idle = 1
+        s.powerSourceChanged(onBattery: true)
+        #expect(!s.isHolding)
+        battery.idle = 0
+        s.powerSourceChanged(onBattery: false)
+        #expect(s.isHolding)
+        s.end()
+        #expect(!s.isHolding)
+        s.powerSourceChanged(onBattery: false)
+        #expect(!s.isHolding)
     }
 
     @Test("session dictionary parsing")

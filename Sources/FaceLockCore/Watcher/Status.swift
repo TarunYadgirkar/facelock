@@ -34,13 +34,13 @@ extension WatcherState {
             case .cameraAccessOff: .openCameraSettings
             case .noEnrollment: .startEnrollment
             case .needsReenroll: .reenroll
-            case .noCamera, .modelsMissing, .starting: nil
+            case .noCamera, .modelsMissing, .starting, .keyUnavailable: nil
             }
             return StatusLine(tone: .critical, text: "Not protecting: \(reason.text)", glyph: .notProtecting, fix: fix)
         }
         if let p = pause {
             let text: String = switch p {
-            case let .until(end): "Paused until \(end.formatted(date: .omitted, time: .shortened))"
+            case let .until(end): "Paused until \(Self.pauseEnd(end, now: now))"
             case .untilUnlock: "Paused until you unlock"
             }
             return StatusLine(tone: .neutral, text: text, glyph: .paused, fix: nil)
@@ -54,19 +54,39 @@ extension WatcherState {
         if !suppressions.isEmpty {
             return StatusLine(tone: .neutral, text: "Resting while the screen is off or locked", glyph: .paused, fix: nil)
         }
+        if cameraNotResponding {
+            return StatusLine(tone: .critical, text: "Not protecting: the camera isn't responding. FaceLock keeps trying",
+                              glyph: .notProtecting, fix: nil)
+        }
         return activeStatus(now: now)
+    }
+
+    /// "6:00 PM" today, "tomorrow, 6:00 AM", or a date further out.
+    static func pauseEnd(_ end: Date, now: Date, calendar: Calendar = .current) -> String {
+        let time = end.formatted(date: .omitted, time: .shortened)
+        if calendar.isDate(end, inSameDayAs: now) { return time }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(end, inSameDayAs: tomorrow) {
+            return "tomorrow, \(time)"
+        }
+        return end.formatted(date: .abbreviated, time: .shortened)
     }
 
     private func activeStatus(now: Date) -> StatusLine {
         switch watchState {
         case .countdown:
             let left = max(0, Int((countdownEndsAt ?? now).timeIntervalSince(now).rounded(.up)))
-            let text = phase == .challenge ? "Turn your head to stay unlocked" : "Locking in \(left) s"
+            let text: String = switch phase {
+            case .challenge: "Turn your head to stay unlocked"
+            case .confirming: "Checking for you"
+            case .locking: "Locking"
+            default: "Locking in \(left) s"
+            }
             return StatusLine(tone: .critical, text: text, glyph: .countdown, fix: nil)
         case .looking, .stranger:
             let n = checksLeft
             let lead = watchState == .stranger ? "Someone else is at the camera" : "Looking for you"
-            return StatusLine(tone: .warning, text: "\(lead). \(n) check\(n == 1 ? "" : "s") left",
+            let failed = lockFailed ? "Lock failed. " : ""
+            return StatusLine(tone: lockFailed ? .critical : .warning, text: "\(failed)\(lead). \(n) check\(n == 1 ? "" : "s") left",
                               glyph: .lookingForYou(checksLeft: n), fix: nil)
         default:
             if someoneElseInView {

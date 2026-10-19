@@ -1,4 +1,5 @@
 import FaceLockCore
+import FaceLockSystem
 import Foundation
 
 /// Command-line switches. `--demo-camera` swaps the camera for a stored image and always means a
@@ -41,23 +42,67 @@ struct LaunchOptions: Sendable, Equatable {
     }
 }
 
-/// Where FaceLock keeps its files. A demo run uses a throwaway folder, never the real ones.
-struct AppPaths: Sendable {
+/// Where FaceLock keeps its files and its key. A demo uses a throwaway folder and a key in memory;
+/// `--data-dir` gets a key of its own; a DEBUG build keeps everything in FaceLock-Debug folders,
+/// so no run but the release app ever reads, rewrites or deletes the real enrollment or key.
+struct AppPaths: Sendable, Equatable {
+    enum Key: Equatable, Sendable {
+        case memory
+        case file(URL)
+        case keychain(account: String)
+    }
+
     let enrollment: URL
     let log: URL
-    let demoKey: Bool
+    let key: Key
+
+    #if DEBUG
+    static let isDebugBuild = true
+    #else
+    static let isDebugBuild = false
+    #endif
+
+    /// The release app's files.
+    static let release = AppPaths(enrollment: EnrollmentStore.defaultURL, log: TelemetryLog.defaultURL,
+                                  key: .keychain(account: KeychainKeyStore.defaultAccount))
+
+    /// A DEBUG build's files, next to but never inside the release folders.
+    static let debug: AppPaths = {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let dir = home.appendingPathComponent("Library/Application Support/FaceLock-Debug")
+        return AppPaths(enrollment: dir.appendingPathComponent("enrollment.v2"),
+                        log: home.appendingPathComponent("Library/Logs/FaceLock-Debug/checks.jsonl"),
+                        key: .file(dir.appendingPathComponent("dev.key")))
+    }()
+
+    static var standard: AppPaths { isDebugBuild ? debug : release }
 
     static func resolve(_ o: LaunchOptions) -> AppPaths {
         guard o.isDemo || o.dataDirectory != nil else {
-            // A dry run watches with your real enrollment but logs elsewhere, so its pretend locks never count.
+            let base = standard
+            // A dry run watches with your enrollment but logs elsewhere, so its pretend locks never count.
             let log = o.dryRun ? FileManager.default.temporaryDirectory.appendingPathComponent("FaceLock-dry-run/checks.jsonl")
-                : TelemetryLog.defaultURL
-            return AppPaths(enrollment: EnrollmentStore.defaultURL, log: log, demoKey: false)
+                : base.log
+            return AppPaths(enrollment: base.enrollment, log: log, key: base.key)
         }
         let dir = o.dataDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("FaceLock-demo-\(ProcessInfo.processInfo.processIdentifier)")
-        return AppPaths(enrollment: dir.appendingPathComponent("enrollment.v2"),
-                        log: dir.appendingPathComponent("checks.jsonl"), demoKey: o.isDemo)
+        let key: Key = o.isDemo ? .memory
+            : isDebugBuild ? .file(dir.appendingPathComponent("dev.key"))
+            : .keychain(account: KeychainKeyStore.account(forDataDirectory: dir))
+        return AppPaths(enrollment: dir.appendingPathComponent("enrollment.v2"), log: dir.appendingPathComponent("checks.jsonl"),
+                        key: key)
+    }
+
+    /// True for the release app's own files; Settings says when a run keeps its files elsewhere.
+    var isRelease: Bool { self == Self.release }
+
+    func makeKeyStore() -> KeyStore {
+        switch key {
+        case .memory: return InMemoryKeyStore()
+        case let .file(url): return FileKeyStore(url: url)
+        case let .keychain(account): return KeychainKeyStore(account: account)
+        }
     }
 }
 

@@ -19,6 +19,9 @@ public struct Cadence: Equatable, Sendable, Codable {
     public let confirmChecks: Int
 
     public static let minRecheck: TimeInterval = 2
+    /// After a window with no frames: retry quickly once, then back off to one a minute.
+    public static let cameraRetryBase: TimeInterval = 2.5
+    public static let cameraRetryCap: TimeInterval = 60
 
     public static let relaxed = Cadence(name: .relaxed, interval: 45, recheckInterval: 15, recheckDecay: 0.5,
                                         strangerInterval: 8, confirmChecks: 3)
@@ -44,7 +47,12 @@ public struct Cadence: Equatable, Sendable, Codable {
         case .owner: return interval
         case .stranger: return strangerInterval
         case .unclear, .away: return recheckDelay(misses: misses)
+        case .cameraFailed: return Self.cameraRetryDelay(failures: 1)
         }
+    }
+
+    public static func cameraRetryDelay(failures: Int) -> TimeInterval {
+        min(cameraRetryCap, cameraRetryBase * pow(2, Double(max(0, failures - 1))))
     }
 
     /// Longest time from leaving to the lock: a full interval, every recheck delay, every window
@@ -56,7 +64,7 @@ public struct Cadence: Equatable, Sendable, Codable {
     }
 
     public func graceText(countdownSeconds: TimeInterval) -> String {
-        "Locks about \(Int(worstCaseGrace(countdownSeconds: countdownSeconds).rounded())) s after you leave"
+        "Locks within \(Int(worstCaseGrace(countdownSeconds: countdownSeconds).rounded())) s after you leave"
     }
 }
 

@@ -45,6 +45,9 @@ public struct WindowPolicy: Equatable, Sendable, Codable {
         self.minFrameSpacing = minFrameSpacing
     }
 
+    /// How long a window waits for the camera's first frame before it counts as a camera failure.
+    public static let openTimeout: TimeInterval = 3
+
     public static let regular = WindowPolicy(duration: 1.5, maxFrames: 6, stopRule: .owner)
     public static let recheck = WindowPolicy(duration: 2.0, maxFrames: 6, stopRule: .owner)
     public static let challengeSeconds: TimeInterval = 8
@@ -65,13 +68,13 @@ public struct WindowPolicy: Equatable, Sendable, Codable {
         }
     }
 
-    /// Longest the camera can stay on for this window.
+    /// Longest the camera can stay on for this window, counted from its first frame for checks.
     public var maxOnTime: TimeInterval { countsFromStart ? duration : settleCap + duration }
 }
 
-/// Frame pacing for one window: discard until exposure settles (capped), then process frames
-/// no closer than `minFrameSpacing`, until the duration or frame cap. Times are seconds on any
-/// monotonic clock.
+/// Frame pacing for one window: discard until exposure settles (capped, from the first frame),
+/// then process frames no closer than `minFrameSpacing`, until the duration or frame cap. A slow
+/// camera open never eats into the settle cap or the duration. Times are seconds on any monotonic clock.
 public struct WindowGate: Equatable, Sendable {
     public enum Action: Equatable, Sendable { case discard, process, finish }
 
@@ -89,7 +92,7 @@ public struct WindowGate: Equatable, Sendable {
 
     public var deadline: Double {
         if policy.countsFromStart { return startedAt + policy.duration }
-        return (settledAt ?? startedAt + policy.settleCap) + policy.duration
+        return (settledAt ?? (firstFrameAt ?? startedAt) + policy.settleCap) + policy.duration
     }
 
     public func next(frameAt t: Double, exposureSettled: Bool, luma: Double) -> (WindowGate, Action) {
@@ -99,7 +102,7 @@ public struct WindowGate: Equatable, Sendable {
         if let cap = g.policy.maxFrames, g.processed >= cap { return (g, .finish) }
         if g.settledAt == nil {
             let settled = exposureSettled && luma >= g.policy.minSettledLuma
-            guard settled || t - g.startedAt >= g.policy.settleCap else { return (g, .discard) }
+            guard settled || t - (g.firstFrameAt ?? t) >= g.policy.settleCap else { return (g, .discard) }
             g.settledAt = t
         }
         if let last = g.lastProcessedAt, t - last < g.policy.minFrameSpacing { return (g, .discard) }
@@ -132,6 +135,20 @@ public struct WindowTiming: Equatable, Sendable, Codable {
 
 public enum WindowVerdict: String, Codable, Sendable {
     case owner, stranger, unclear, away
+    /// No frame arrived, or every frame failed analysis: neither a miss nor an empty room.
+    case cameraFailed = "camera_failed"
+}
+
+public struct FrameSize: Equatable, Sendable, Codable {
+    public let width: Int
+    public let height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
+
+    public var text: String { "\(width)x\(height)" }
 }
 
 /// The owner face of the window's best owner frame: what still-face, adaptation and the
@@ -169,10 +186,14 @@ public struct WindowSummary: Equatable, Sendable {
     public let owner: OwnerSample?
     public let yawRange: Double?
     public let timing: WindowTiming
+    /// Frames whose analysis threw.
+    public let failedFrames: Int
+    public let frameSize: FrameSize?
 
     public init(verdict: WindowVerdict, frames: Int, ownerFrames: Int, strangerFrames: Int, unclearFrames: Int,
                 noFaceFrames: Int, maxFaceCount: Int, bestScore: Float?, bestAnchorScore: Float?, qualityFlags: QualityFlags,
-                secondFace: Bool, owner: OwnerSample?, yawRange: Double?, timing: WindowTiming) {
+                secondFace: Bool, owner: OwnerSample?, yawRange: Double?, timing: WindowTiming, failedFrames: Int = 0,
+                frameSize: FrameSize? = nil) {
         self.verdict = verdict
         self.frames = frames
         self.ownerFrames = ownerFrames
@@ -187,6 +208,8 @@ public struct WindowSummary: Equatable, Sendable {
         self.owner = owner
         self.yawRange = yawRange
         self.timing = timing
+        self.failedFrames = failedFrames
+        self.frameSize = frameSize
     }
 
     public var sawFace: Bool { maxFaceCount > 0 }
@@ -206,6 +229,8 @@ public struct WindowAccumulator: Equatable, Sendable {
     private(set) var owner: OwnerSample?
     private(set) var yawMin: Double?
     private(set) var yawMax: Double?
+    private(set) var failures = 0
+    private(set) var frameSize: FrameSize?
 
     public init(policy: WindowPolicy, thresholds: Thresholds) {
         self.policy = policy
@@ -239,6 +264,19 @@ public struct WindowAccumulator: Equatable, Sendable {
         return a
     }
 
+    /// A frame the pipeline could not analyse.
+    public func addingFailure() -> WindowAccumulator {
+        var a = self
+        a.failures += 1
+        return a
+    }
+
+    public func noting(frameSize: FrameSize) -> WindowAccumulator {
+        var a = self
+        a.frameSize = a.frameSize ?? frameSize
+        return a
+    }
+
     public var yawRange: Double? { yawMin.flatMap { lo in yawMax.map { $0 - lo } } }
 
     public var shouldStop: Bool {
@@ -256,11 +294,17 @@ public struct WindowAccumulator: Equatable, Sendable {
         return .away
     }
 
+    /// The verdict, unless the camera never delivered a frame or every analysed frame failed.
+    public func verdict(timing: WindowTiming) -> WindowVerdict {
+        if timing.firstFrame == nil || (frames == 0 && failures > 0) { return .cameraFailed }
+        return verdict
+    }
+
     public func summary(timing: WindowTiming) -> WindowSummary {
-        WindowSummary(verdict: verdict, frames: frames, ownerFrames: counts[.owner] ?? 0,
+        WindowSummary(verdict: verdict(timing: timing), frames: frames, ownerFrames: counts[.owner] ?? 0,
                       strangerFrames: counts[.stranger] ?? 0, unclearFrames: counts[.unclear] ?? 0,
                       noFaceFrames: counts[.noFace] ?? 0, maxFaceCount: maxFaces, bestScore: bestScore,
                       bestAnchorScore: bestAnchor, qualityFlags: flags, secondFace: secondFace, owner: owner,
-                      yawRange: yawRange, timing: timing)
+                      yawRange: yawRange, timing: timing, failedFrames: failures, frameSize: frameSize)
     }
 }

@@ -101,7 +101,7 @@ struct StillFaceTests {
 
 @Suite("Window pacing")
 struct WindowGateTests {
-    @Test("frames are discarded until exposure settles, capped at 0.6 s")
+    @Test("frames are discarded until exposure settles, capped at 0.6 s after the first frame")
     func settle() {
         var g = WindowGate(policy: .regular, startedAt: 0)
         var a: WindowGate.Action
@@ -114,7 +114,9 @@ struct WindowGateTests {
         #expect(g.settledAt == 0.3)
 
         var capped = WindowGate(policy: .regular, startedAt: 0)
-        (capped, a) = capped.next(frameAt: 0.61, exposureSettled: false, luma: 5)
+        (capped, a) = capped.next(frameAt: 0.05, exposureSettled: false, luma: 5)
+        #expect(a == .discard)
+        (capped, a) = capped.next(frameAt: 0.66, exposureSettled: false, luma: 5)
         #expect(a == .process)
     }
 

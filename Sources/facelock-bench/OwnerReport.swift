@@ -27,6 +27,9 @@ enum OwnerReport {
                       "note": "No enrollment.v2 yet; onboarding in the app creates it. The 0.4 enrollment (mbf) cannot serve r50."]
         case let .needsReenroll(reason):
             report = ["enrollment": "unreadable", "reason": reason.rawValue]
+        case .keyUnavailable:
+            report = ["enrollment": "unreadable", "reason": "the keychain would not hand over the key without a prompt; "
+                      + "this tool never shows one. FaceLock itself still reads it."]
         case let .loaded(p):
             report = aggregates(p)
         }
