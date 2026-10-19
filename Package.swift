@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "FaceLockVision", targets: ["FaceLockVision"]),
         .library(name: "FaceLockCapture", targets: ["FaceLockCapture"]),
         .library(name: "FaceLockSystem", targets: ["FaceLockSystem"]),
+        .executable(name: "FaceLock", targets: ["FaceLock"]),
         .executable(name: "facelock-bench", targets: ["facelock-bench"]),
     ],
     targets: [
@@ -30,6 +31,12 @@ let package = Package(
             linkerSettings: [.linkedFramework("IOKit")]
         ),
         .executableTarget(
+            name: "FaceLock",
+            dependencies: ["FaceLockCore", "FaceLockVision", "FaceLockCapture", "FaceLockSystem"],
+            path: "Sources/FaceLock",
+            linkerSettings: [.linkedFramework("IOKit")]
+        ),
+        .executableTarget(
             name: "facelock-bench",
             dependencies: ["FaceLockCore", "FaceLockVision", "FaceLockCapture", "FaceLockSystem"],
             path: "Sources/facelock-bench"
@@ -43,6 +50,11 @@ let package = Package(
             name: "FaceLockVisionTests",
             dependencies: ["FaceLockCore", "FaceLockVision", "FaceLockCapture"],
             path: "Tests/FaceLockVisionTests"
+        ),
+        .testTarget(
+            name: "FaceLockAppTests",
+            dependencies: ["FaceLock", "FaceLockCore", "FaceLockSystem"],
+            path: "Tests/FaceLockAppTests"
         ),
         .testTarget(
             name: "FaceLockSystemTests",

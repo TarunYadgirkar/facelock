@@ -34,7 +34,7 @@ extension WatcherState {
             case .cameraAccessOff: .openCameraSettings
             case .noEnrollment: .startEnrollment
             case .needsReenroll: .reenroll
-            case .noCamera, .modelsMissing: nil
+            case .noCamera, .modelsMissing, .starting: nil
             }
             return StatusLine(tone: .critical, text: "Not protecting: \(reason.text)", glyph: .notProtecting, fix: fix)
         }
@@ -44,6 +44,9 @@ extension WatcherState {
             case .untilUnlock: "Paused until you unlock"
             }
             return StatusLine(tone: .neutral, text: text, glyph: .paused, fix: nil)
+        }
+        if suppressions.contains(.setup) {
+            return StatusLine(tone: .neutral, text: "Paused while setup uses the camera", glyph: .paused, fix: nil)
         }
         if suppressions.contains(.cameraUnavailable) {
             return StatusLine(tone: .warning, text: "Waiting for the camera", glyph: .notProtecting, fix: nil)

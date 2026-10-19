@@ -147,16 +147,22 @@ public enum TeachOutcome: Equatable, Sendable {
 /// the whole look is rejected when its median anchor score is below S.
 public struct TeachSession: Equatable, Sendable {
     public static let seconds: TimeInterval = 5
+    /// "Add today's light": the second-session capture the calibration report asks for.
+    public static let lightSeconds: TimeInterval = 20
 
     public let startedAt: Date
+    public let duration: TimeInterval
+    public let target: String
     public private(set) var captured: [Template] = []
     public private(set) var anchorScores: [Float] = []
 
-    public init(startedAt: Date) {
+    public init(startedAt: Date, duration: TimeInterval = TeachSession.seconds, target: String = "teach") {
         self.startedAt = startedAt
+        self.duration = duration
+        self.target = target
     }
 
-    public func isOver(at now: Date) -> Bool { now.timeIntervalSince(startedAt) >= Self.seconds }
+    public func isOver(at now: Date) -> Bool { now.timeIntervalSince(startedAt) >= duration }
 
     public func offering(_ frame: FrameObservation, at now: Date, session: Int) -> TeachSession {
         guard !isOver(at: now), frame.faces.count == 1, let f = frame.faces.first, f.quality.passes,
@@ -164,7 +170,7 @@ public struct TeachSession: Equatable, Sendable {
               captured.allSatisfy({ now.timeIntervalSince($0.capturedAt) >= EnrollmentSession.minSpacing }),
               !captured.contains(where: { Scorer.cosine(e, $0.vector) >= EnrollmentSession.noveltyCeiling }) else { return self }
         var t = self
-        t.captured.append(Template(embedding: e, pool: .anchor, capturedAt: now, session: session, target: "teach",
+        t.captured.append(Template(embedding: e, pool: .anchor, capturedAt: now, session: session, target: target,
                                    sharpness: Float(f.sharpness ?? 0)))
         t.anchorScores.append(score.anchor)
         return t

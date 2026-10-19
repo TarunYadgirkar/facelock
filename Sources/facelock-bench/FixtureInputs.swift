@@ -12,7 +12,7 @@ enum FixtureInputs {
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let p = try FacePipeline(models: models)
         let frame = try cameraFrame(image)
-        let a = try p.analyze(frame: frame.vImage, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true))
+        let a = try frame.withVImage { try p.analyze(frame: $0, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true)) }
         guard let f = a.observation.faces.first else { throw BenchError("no face in \(image.path)") }
         try p.detector.withInput { v in
             let rows = (0..<Int(v.height)).map { Data(bytes: v.data + $0 * v.rowBytes, count: Int(v.width) * 4) }

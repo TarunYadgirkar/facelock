@@ -26,10 +26,14 @@ public enum Pause: Equatable, Sendable, Codable {
 
 public enum Suppression: String, Codable, Sendable, CaseIterable {
     case screenLocked, displayAsleep, systemAsleep, cameraUnavailable
+    /// Enrollment, Teach, Check with someone else or Measure camera timing has the camera.
+    case setup
 }
 
 public enum NotProtectingReason: String, Codable, Sendable {
     case cameraAccessOff, noCamera, noEnrollment, needsReenroll, modelsMissing
+    /// The models and camera are still loading; no check may start yet.
+    case starting
 
     public var text: String {
         switch self {
@@ -38,6 +42,7 @@ public enum NotProtectingReason: String, Codable, Sendable {
         case .noEnrollment: return "FaceLock doesn't know your face yet"
         case .needsReenroll: return "your saved face can't be read, set it up again"
         case .modelsMissing: return "face models are missing"
+        case .starting: return "starting up"
         }
     }
 }

@@ -11,6 +11,8 @@ public struct LegacyInstall: Equatable, Sendable {
     public var runningPID: Int32?
     public var enrollment: URL?
 
+    public init() {}
+
     public var isEmpty: Bool {
         configFile == nil && launchAgent == nil && launcherApp == nil && pidFile == nil && enrollment == nil
     }

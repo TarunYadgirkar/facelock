@@ -49,6 +49,11 @@ public final class CameraSession: NSObject, FrameSource, AVCaptureVideoDataOutpu
         session.addOutput(output)
     }
 
+    /// A live preview of this session for enrollment screens. Mirroring is the caller's choice.
+    public func makePreviewLayer() -> AVCaptureVideoPreviewLayer {
+        AVCaptureVideoPreviewLayer(session: session)
+    }
+
     public func start(queue: DispatchQueue, handler: @escaping @Sendable (CapturedFrame) -> Void) {
         self.handler = handler
         output.setSampleBufferDelegate(self, queue: queue)

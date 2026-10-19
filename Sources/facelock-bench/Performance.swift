@@ -7,7 +7,7 @@ struct StandInOwner {
     let recognition: RecognitionContext
 
     init(pipeline: FacePipeline, frame: BGRABuffer, anchors: Int = 54) throws {
-        let a = try pipeline.analyze(frame: frame.vImage, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true))
+        let a = try frame.withVImage { try pipeline.analyze(frame: $0, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true)) }
         guard let face = a.observation.faces.first, let e = face.embedding else { throw BenchError("no face in the stored frame") }
         let start = Date()
         let templates = (0..<anchors).map { i in
@@ -34,11 +34,11 @@ enum Latency {
 
     /// The camera path on one stored 640x480 frame: vImageScale, detect, align, crop checks, embed, score.
     static func runtimeFrame(_ p: FacePipeline, _ frame: BGRABuffer, _ r: RecognitionContext, frames: Int) throws -> [String: Any] {
-        for _ in 0..<10 { _ = try autoreleasepool { try p.analyze(frame: frame.vImage, recognition: r) } }
+        for _ in 0..<10 { _ = try autoreleasepool { try frame.withVImage { try p.analyze(frame: $0, recognition: r) } } }
         var times: [StageTimes] = []
         let u0 = Usage.now()
         for _ in 0..<frames {
-            times.append(try autoreleasepool { try p.analyze(frame: frame.vImage, recognition: r).times })
+            times.append(try autoreleasepool { try frame.withVImage { try p.analyze(frame: $0, recognition: r) }.times })
         }
         let d = Usage.now().since(u0)
         return stageJSON(times).merging([
@@ -94,7 +94,7 @@ enum Burst {
         let owner = try StandInOwner(pipeline: p, frame: frame)
         func look() throws -> [StageTimes] {
             try (0..<3).map { _ in
-                try autoreleasepool { try p.analyze(frame: frame.vImage, recognition: owner.recognition).times }
+                try autoreleasepool { try frame.withVImage { try p.analyze(frame: $0, recognition: owner.recognition) }.times }
             }
         }
         _ = try look()
@@ -157,7 +157,7 @@ enum Cold {
                      pool: .anchor, capturedAt: Date(), session: i % 2, target: "centre", sharpness: 100)
         })
         let r = RecognitionContext(gallery: gallery, thresholds: .uncalibrated)
-        let a = try p.analyze(frame: frame.vImage, recognition: r)
+        let a = try frame.withVImage { try p.analyze(frame: $0, recognition: r) }
         let verdict = VerdictRules.classify(a.observation, r.thresholds).verdict
         let end = Usage.now()
         printJSON(["decision": verdict.rawValue, "model_load_ms": rounded(loaded.wallMs - t0.wallMs, 1),

@@ -236,6 +236,30 @@ struct WatcherTests {
         #expect(h.startedKind == .regular)
     }
 
+    @Test("starting up blocks the first check until the app unblocks")
+    func startingUp() {
+        var h = Harness()
+        h.send(.block(.starting))
+        h.send(.start)
+        #expect(h.effects.isEmpty)
+        #expect(h.state.status(now: h.now).text == "Not protecting: starting up")
+        h.send(.unblock)
+        #expect(h.startedKind == .regular)
+    }
+
+    @Test("a setup screen takes the camera: checks stop, then one runs at once when it ends")
+    func setup() {
+        var h = Harness()
+        h.send(.start)
+        h.send(.setupStarted)
+        #expect(h.has(.abortWindow))
+        #expect(h.state.status(now: h.now).text == "Paused while setup uses the camera")
+        h.send(.checkNow)
+        #expect(h.effects.isEmpty)
+        h.send(.setupEnded, after: 20)
+        #expect(h.startedKind == .regular)
+    }
+
     @Test("check now runs a manual window from Watching")
     func checkNow() {
         var h = Harness()

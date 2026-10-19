@@ -11,6 +11,8 @@ public enum WatcherEvent: Equatable, Sendable {
     case displaySlept, displayWoke
     case systemWillSleep, systemDidWake
     case cameraAvailable(Bool)
+    /// A setup screen takes the camera; checks resume with one at once when it hands it back.
+    case setupStarted, setupEnded
     case pause(Pause)
     case resume
     case checkNow
@@ -78,6 +80,8 @@ private struct Step {
             changeAvailability { s in
                 if ok { s.suppressions.remove(.cameraUnavailable) } else { s.suppressions.insert(.cameraUnavailable) }
             }
+        case .setupStarted: changeAvailability { $0.suppressions.insert(.setup) }
+        case .setupEnded: changeAvailability(immediate: true) { $0.suppressions.remove(.setup) }
         case let .pause(p): pause(p)
         case .resume: changeAvailability(immediate: true) { $0.pause = nil }
         case .checkNow: checkNow()
