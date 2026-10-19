@@ -64,6 +64,9 @@ final class Snapshotter {
             if model.state.watchState == .countdown { await render(menu(), "ui-menu-countdown") }
             await render(CountdownCard(endsAt: ends, total: Double(model.settings.countdownSeconds), reason: .away)
                 .padding(Space.xxl), "ui-countdown", background: Color(white: 0.32))
+            let look = WindowPolicy.recheck.maxOnTime
+            await render(CountdownCard(endsAt: Date().addingTimeInterval(look), total: look, reason: .checking)
+                .padding(Space.xxl), "ui-countdown-checking", background: Color(white: 0.32))
         }
         if await wait(20, { self.model.notes.contains { $0.hasPrefix("Dry run") } }) {
             try? await Task.sleep(for: .milliseconds(500))
