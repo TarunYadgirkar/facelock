@@ -30,6 +30,8 @@ final class AppModel {
     @ObservationIgnored private var watchCamera: CameraSession?
     @ObservationIgnored private var storedCamera: StoredImageCamera?
     @ObservationIgnored private var countdownTicker: Timer?
+    /// Read by notifications on the watcher's queue, so it can't live on the main actor.
+    @ObservationIgnored private let soundFlag = LockedFlag()
 
     var state: WatcherState
     var settings: WatcherSettings {
@@ -65,16 +67,16 @@ final class AppModel {
     // MARK: launch
 
     func start() {
+        soundFlag.value = settings.sound
         let environment: WatchEnvironment = options.neverLocks
             ? DryRunAppEnvironment(presenter: countdownUI) { [weak self] text in Task { @MainActor in self?.note(text) } }
-            : SystemEnvironment(notifier: notifier, presenter: countdownUI) { [weak self] in
-                MainActor.assumeIsolated { self?.settings.sound ?? false }
-            }
+            : SystemEnvironment(notifier: notifier, presenter: countdownUI) { [soundFlag] in soundFlag.value }
         controller = WatchController(settings: settings, recognition: RecognitionContext(gallery: Gallery(), thresholds: .uncalibrated),
                                      checks: checks, environment: environment, telemetry: telemetry)
         countdownUI.onHere = { [weak self] in self?.controller.send(.userInput) }
         countdownUI.soundOn = { [weak self] in self?.settings.sound ?? false }
-        controller.onChange { [weak self] s in Task { @MainActor in self?.apply(s) } }
+        // DispatchQueue.main keeps the snapshots in order; a Task per change would not promise that.
+        controller.onChange { [weak self] s in DispatchQueue.main.async { MainActor.assumeIsolated { self?.apply(s) } } }
         controller.onGalleryChange { [weak self] g in Task { @MainActor in self?.galleryAdapted(g) } }
         loadStore()
         detectLegacy()
@@ -214,6 +216,7 @@ final class AppModel {
     }
 
     private func settingsChanged() {
+        soundFlag.value = settings.sound
         prefs.watcher = settings
         controller?.send(.settingsChanged(settings))
     }

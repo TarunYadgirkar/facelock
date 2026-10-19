@@ -4,6 +4,17 @@ import FaceLockSystem
 import Foundation
 import IOKit.ps
 
+/// A Bool any queue may read.
+final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = false
+
+    var value: Bool {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}
+
 /// The watcher's check runner, set once the camera and models are ready. Until then the watcher
 /// is blocked and never starts a window; a stray one ends at once as an empty room.
 final class SwitchableChecks: CheckPerforming, @unchecked Sendable {
