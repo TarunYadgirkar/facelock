@@ -92,7 +92,7 @@ struct VisionTests {
     @Test("grace_hopper: one face, score at least 0.9, landmarks within 1 px of OpenCV's")
     func detection() throws {
         let p = try FacePipeline()
-        let a = try p.analyze(frame: try Fixtures.frame().vImage, recognition: nil, options: AnalysisOptions(embedAll: true))
+        let a = try Fixtures.frame().withVImage { try p.analyze(frame: $0, recognition: nil, options: AnalysisOptions(embedAll: true)) }
         #expect(a.detectedFaces == 1)
         let face = try #require(a.observation.faces.first).face
         #expect(face.score >= 0.9)
@@ -114,7 +114,7 @@ struct VisionTests {
         let img = try ImageFile.load(Fixtures.grace)
         let w = Double(img.width) * 0.48, h = Double(img.height) * 0.48
         frame.context().draw(img, in: CGRect(x: (640 - w) / 2, y: (480 - h) / 2, width: w, height: h))
-        let a = try p.analyze(frame: frame.vImage, recognition: nil, options: AnalysisOptions(embedAll: true))
+        let a = try frame.withVImage { try p.analyze(frame: $0, recognition: nil, options: AnalysisOptions(embedAll: true)) }
         let lm = try #require(a.observation.faces.first).face.landmarks
         let m = try #require(SimilarityTransform.toArcFace(lm))
         #expect(m.scale > 0.85 && m.scale < 1.15)
@@ -136,7 +136,7 @@ struct VisionTests {
         let frame = try Fixtures.frame()
         func embed(_ c: ComputeChoice) throws -> [Float] {
             let p = try FacePipeline(compute: c)
-            let a = try p.analyze(frame: frame.vImage, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true))
+            let a = try frame.withVImage { try p.analyze(frame: $0, recognition: nil, options: AnalysisOptions(maxFaces: 1, embedAll: true)) }
             return try #require(a.observation.faces.first?.embedding)
         }
         let ane = try embed(.neuralEngine), cpu = try embed(.cpu)
@@ -184,7 +184,7 @@ struct CheckRunnerTests {
     }
 
     func ownerGallery(_ p: FacePipeline) throws -> Gallery {
-        let a = try p.analyze(frame: try Fixtures.frame().vImage, recognition: nil, options: AnalysisOptions(embedAll: true))
+        let a = try Fixtures.frame().withVImage { try p.analyze(frame: $0, recognition: nil, options: AnalysisOptions(embedAll: true)) }
         let e = try #require(a.observation.faces.first?.embedding)
         return Gallery((0..<3).map { _ in Template(embedding: e, pool: .anchor, capturedAt: Date(), session: 0, target: "centre", sharpness: 1) })
     }

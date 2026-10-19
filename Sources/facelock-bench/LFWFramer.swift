@@ -40,7 +40,7 @@ final class LFWFramer {
     }
 
     func analyze(recognition: RecognitionContext?, options: AnalysisOptions) throws -> FrameAnalysis {
-        try pipeline.analyzePrepared(source: full.vImage, toSource: toSource, recognition: recognition, options: options)
+        try full.withVImage { try pipeline.analyzePrepared(source: $0, toSource: toSource, recognition: recognition, options: options) }
     }
 }
 

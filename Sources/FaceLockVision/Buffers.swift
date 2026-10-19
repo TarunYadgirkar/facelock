@@ -24,8 +24,15 @@ public final class BGRABuffer: @unchecked Sendable {
         data.deallocate()
     }
 
+    /// A view of the pixels that does not keep this buffer alive. Prefer `withVImage`: in
+    /// `pipeline.analyze(frame: makeBuffer().vImage)` the temporary can be freed before the call reads it.
     public var vImage: vImage_Buffer {
         vImage_Buffer(data: data, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: rowBytes)
+    }
+
+    /// The pixels as a vImage buffer, with this buffer kept alive until `body` returns.
+    public func withVImage<R>(_ body: (vImage_Buffer) throws -> R) rethrows -> R {
+        try withExtendedLifetime(self) { try body(vImage) }
     }
 
     public var bytes: UnsafeMutablePointer<UInt8> { data.assumingMemoryBound(to: UInt8.self) }
