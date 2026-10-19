@@ -11,29 +11,49 @@ public enum ModelError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case let .missing(name): return "\(name).mlmodelc not found; run tools/convert_models.py"
+        case let .missing(name): return "\(name).mlmodelc not found; download the face model in setup, or run tools/convert_models.py"
         }
     }
 }
 
-/// Finds the compiled models: an explicit directory, $FACELOCK_MODELS, the app bundle, then
-/// the repo's models/ folder next to the package.
+/// Finds the compiled models: an explicit directory, $FACELOCK_MODELS, the app bundle (YuNet),
+/// the folder the downloaded recognizer is built in, then the repo's models/ folder.
 public struct ModelLocator: Sendable {
     public let directories: [URL]
 
-    public init(directory: URL? = nil) {
+    public init(directory: URL? = nil, installed: URL = ModelLocator.installDirectory) {
         var dirs: [URL] = []
         if let directory { dirs.append(directory) }
         if let env = ProcessInfo.processInfo.environment["FACELOCK_MODELS"] { dirs.append(URL(fileURLWithPath: env)) }
         if let res = Bundle.main.resourceURL { dirs.append(res) }
+        dirs.append(installed)
         dirs.append(Self.repoModels)
         directories = dirs
     }
 
-    /// <repo>/models, found from this source file's location at build time.
-    public static let repoModels = URL(fileURLWithPath: #filePath)
+    /// <repo>, found from this source file's location at build time.
+    public static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("models")
+
+    public static let repoModels = repoRoot.appendingPathComponent("models")
+
+    /// Where the app keeps w600k_r50.onnx and the ArcFaceR50.mlmodelc rebuilt from it.
+    public static let installDirectory = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/FaceLock")
+
+    /// The shipped recognizer without weights and the map for rebuilding them: from the app bundle,
+    /// or in a source checkout from Resources/ and models/.
+    public static func recognizerKit(bundle: Bundle = .main) -> (layout: URL, skeleton: URL)? {
+        let fm = FileManager.default
+        if let res = bundle.resourceURL {
+            let layout = res.appendingPathComponent(RecognizerLayout.fileName)
+            let skeleton = res.appendingPathComponent("\(ModelName.recognizer.rawValue).skeleton")
+            if fm.fileExists(atPath: layout.path), fm.fileExists(atPath: skeleton.path) { return (layout, skeleton) }
+        }
+        let layout = repoRoot.appendingPathComponent("Resources/\(RecognizerLayout.fileName)")
+        let skeleton = repoModels.appendingPathComponent("\(ModelName.recognizer.rawValue).mlmodelc")
+        return fm.fileExists(atPath: layout.path) && fm.fileExists(atPath: skeleton.path) ? (layout, skeleton) : nil
+    }
 
     public func url(_ name: ModelName) throws -> URL {
         for d in directories {
@@ -44,6 +64,8 @@ public struct ModelLocator: Sendable {
     }
 
     public var isAvailable: Bool { ModelName.allCases.allSatisfy { (try? url($0)) != nil } }
+
+    public var hasRecognizer: Bool { (try? url(.recognizer)) != nil }
 }
 
 public enum ComputeChoice: String, Sendable, CaseIterable {

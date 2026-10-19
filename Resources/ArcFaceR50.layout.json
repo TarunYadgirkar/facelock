@@ -1,0 +1,1678 @@
+{
+ "about": "Where each w600k_r50.onnx initializer goes in ArcFaceR50.mlmodelc/weights/weight.bin. No weights.",
+ "source": {
+  "url": "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
+  "archive_sha256": "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f",
+  "archive_bytes": 288621354,
+  "member": "w600k_r50.onnx",
+  "sha256": "4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43",
+  "bytes": 174383860,
+  "license": "InsightFace pretrained models: non-commercial research purposes only"
+ },
+ "weights": {
+  "bytes": 87208960,
+  "sha256": "aa08d7826a70f9bc237ea0532a5eec12cb83b8375148a1b0650f104cbb2ff492",
+  "version": 2
+ },
+ "blobs": [
+  {
+   "offset": 64,
+   "dtype": 1,
+   "initializer": "685",
+   "cast": "f16",
+   "count": 1728
+  },
+  {
+   "offset": 3584,
+   "dtype": 1,
+   "initializer": "686",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 3776,
+   "dtype": 2,
+   "initializer": "843",
+   "cast": "f32",
+   "count": 64
+  },
+  {
+   "offset": 4096,
+   "dtype": 1,
+   "initializer": "layer1.0.bn1.running_mean",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 4288,
+   "dtype": 1,
+   "initializer": "layer1.0.bn1.running_var",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 4480,
+   "dtype": 1,
+   "initializer": "layer1.0.bn1.weight",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 4672,
+   "dtype": 1,
+   "initializer": "layer1.0.bn1.bias",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 4864,
+   "dtype": 1,
+   "initializer": "688",
+   "cast": "f16",
+   "count": 36864
+  },
+  {
+   "offset": 78656,
+   "dtype": 1,
+   "initializer": "689",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 78848,
+   "dtype": 2,
+   "initializer": "844",
+   "cast": "f32",
+   "count": 64
+  },
+  {
+   "offset": 79168,
+   "dtype": 1,
+   "initializer": "691",
+   "cast": "f16",
+   "count": 36864
+  },
+  {
+   "offset": 152960,
+   "dtype": 1,
+   "initializer": "692",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 153152,
+   "dtype": 1,
+   "initializer": "694",
+   "cast": "f16",
+   "count": 4096
+  },
+  {
+   "offset": 161408,
+   "dtype": 1,
+   "initializer": "695",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 161600,
+   "dtype": 1,
+   "initializer": "layer1.1.bn1.running_mean",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 161792,
+   "dtype": 1,
+   "initializer": "layer1.1.bn1.running_var",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 161984,
+   "dtype": 1,
+   "initializer": "layer1.1.bn1.weight",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 162176,
+   "dtype": 1,
+   "initializer": "layer1.1.bn1.bias",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 162368,
+   "dtype": 1,
+   "initializer": "697",
+   "cast": "f16",
+   "count": 36864
+  },
+  {
+   "offset": 236160,
+   "dtype": 1,
+   "initializer": "698",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 236352,
+   "dtype": 2,
+   "initializer": "845",
+   "cast": "f32",
+   "count": 64
+  },
+  {
+   "offset": 236672,
+   "dtype": 1,
+   "initializer": "700",
+   "cast": "f16",
+   "count": 36864
+  },
+  {
+   "offset": 310464,
+   "dtype": 1,
+   "initializer": "701",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 310656,
+   "dtype": 1,
+   "initializer": "layer1.2.bn1.running_mean",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 310848,
+   "dtype": 1,
+   "initializer": "layer1.2.bn1.running_var",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 311040,
+   "dtype": 1,
+   "initializer": "layer1.2.bn1.weight",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 311232,
+   "dtype": 1,
+   "initializer": "layer1.2.bn1.bias",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 311424,
+   "dtype": 1,
+   "initializer": "703",
+   "cast": "f16",
+   "count": 36864
+  },
+  {
+   "offset": 385216,
+   "dtype": 1,
+   "initializer": "704",
+   "cast": "f16nz",
+   "count": 64
+  },
+  {
+   "offset": 385408,
+   "dtype": 2,
+   "initializer": "846",
+   "cast": "f32",
+   "count": 64
+  },
+  {
+   "offset": 385728,
+   "dtype": 1,
+   "initializer": "706",
+   "cast": "f16",
+   "count": 36864
+  },
+  {
+   "offset": 459520,
+   "dtype": 1,
+   "initializer": "707",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 459712,
+   "dtype": 1,
+   "initializer": "layer2.0.bn1.running_mean",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 459904,
+   "dtype": 1,
+   "initializer": "layer2.0.bn1.running_var",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 460096,
+   "dtype": 1,
+   "initializer": "layer2.0.bn1.weight",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 460288,
+   "dtype": 1,
+   "initializer": "layer2.0.bn1.bias",
+   "cast": "f16",
+   "count": 64
+  },
+  {
+   "offset": 460480,
+   "dtype": 1,
+   "initializer": "709",
+   "cast": "f16",
+   "count": 73728
+  },
+  {
+   "offset": 608000,
+   "dtype": 1,
+   "initializer": "710",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 608320,
+   "dtype": 2,
+   "initializer": "847",
+   "cast": "f32",
+   "count": 128
+  },
+  {
+   "offset": 608896,
+   "dtype": 1,
+   "initializer": "712",
+   "cast": "f16",
+   "count": 147456
+  },
+  {
+   "offset": 903872,
+   "dtype": 1,
+   "initializer": "713",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 904192,
+   "dtype": 1,
+   "initializer": "715",
+   "cast": "f16",
+   "count": 8192
+  },
+  {
+   "offset": 920640,
+   "dtype": 1,
+   "initializer": "716",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 920960,
+   "dtype": 1,
+   "initializer": "layer2.1.bn1.running_mean",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 921280,
+   "dtype": 1,
+   "initializer": "layer2.1.bn1.running_var",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 921600,
+   "dtype": 1,
+   "initializer": "layer2.1.bn1.weight",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 921920,
+   "dtype": 1,
+   "initializer": "layer2.1.bn1.bias",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 922240,
+   "dtype": 1,
+   "initializer": "718",
+   "cast": "f16",
+   "count": 147456
+  },
+  {
+   "offset": 1217216,
+   "dtype": 1,
+   "initializer": "719",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 1217536,
+   "dtype": 2,
+   "initializer": "848",
+   "cast": "f32",
+   "count": 128
+  },
+  {
+   "offset": 1218112,
+   "dtype": 1,
+   "initializer": "721",
+   "cast": "f16",
+   "count": 147456
+  },
+  {
+   "offset": 1513088,
+   "dtype": 1,
+   "initializer": "722",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 1513408,
+   "dtype": 1,
+   "initializer": "layer2.2.bn1.running_mean",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 1513728,
+   "dtype": 1,
+   "initializer": "layer2.2.bn1.running_var",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 1514048,
+   "dtype": 1,
+   "initializer": "layer2.2.bn1.weight",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 1514368,
+   "dtype": 1,
+   "initializer": "layer2.2.bn1.bias",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 1514688,
+   "dtype": 1,
+   "initializer": "724",
+   "cast": "f16",
+   "count": 147456
+  },
+  {
+   "offset": 1809664,
+   "dtype": 1,
+   "initializer": "725",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 1809984,
+   "dtype": 2,
+   "initializer": "849",
+   "cast": "f32",
+   "count": 128
+  },
+  {
+   "offset": 1810560,
+   "dtype": 1,
+   "initializer": "727",
+   "cast": "f16",
+   "count": 147456
+  },
+  {
+   "offset": 2105536,
+   "dtype": 1,
+   "initializer": "728",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2105856,
+   "dtype": 1,
+   "initializer": "layer2.3.bn1.running_mean",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2106176,
+   "dtype": 1,
+   "initializer": "layer2.3.bn1.running_var",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2106496,
+   "dtype": 1,
+   "initializer": "layer2.3.bn1.weight",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2106816,
+   "dtype": 1,
+   "initializer": "layer2.3.bn1.bias",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2107136,
+   "dtype": 1,
+   "initializer": "730",
+   "cast": "f16",
+   "count": 147456
+  },
+  {
+   "offset": 2402112,
+   "dtype": 1,
+   "initializer": "731",
+   "cast": "f16nz",
+   "count": 128
+  },
+  {
+   "offset": 2402432,
+   "dtype": 2,
+   "initializer": "850",
+   "cast": "f32",
+   "count": 128
+  },
+  {
+   "offset": 2403008,
+   "dtype": 1,
+   "initializer": "733",
+   "cast": "f16",
+   "count": 147456
+  },
+  {
+   "offset": 2697984,
+   "dtype": 1,
+   "initializer": "734",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2698304,
+   "dtype": 1,
+   "initializer": "layer3.0.bn1.running_mean",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2698624,
+   "dtype": 1,
+   "initializer": "layer3.0.bn1.running_var",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2698944,
+   "dtype": 1,
+   "initializer": "layer3.0.bn1.weight",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2699264,
+   "dtype": 1,
+   "initializer": "layer3.0.bn1.bias",
+   "cast": "f16",
+   "count": 128
+  },
+  {
+   "offset": 2699584,
+   "dtype": 1,
+   "initializer": "736",
+   "cast": "f16",
+   "count": 294912
+  },
+  {
+   "offset": 3289472,
+   "dtype": 1,
+   "initializer": "737",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 3290048,
+   "dtype": 2,
+   "initializer": "851",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 3291136,
+   "dtype": 1,
+   "initializer": "739",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 4470848,
+   "dtype": 1,
+   "initializer": "740",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 4471424,
+   "dtype": 1,
+   "initializer": "742",
+   "cast": "f16",
+   "count": 32768
+  },
+  {
+   "offset": 4537024,
+   "dtype": 1,
+   "initializer": "743",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 4537600,
+   "dtype": 1,
+   "initializer": "layer3.1.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 4538176,
+   "dtype": 1,
+   "initializer": "layer3.1.bn1.running_var",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 4538752,
+   "dtype": 1,
+   "initializer": "layer3.1.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 4539328,
+   "dtype": 1,
+   "initializer": "layer3.1.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 4539904,
+   "dtype": 1,
+   "initializer": "745",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 5719616,
+   "dtype": 1,
+   "initializer": "746",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 5720192,
+   "dtype": 2,
+   "initializer": "852",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 5721280,
+   "dtype": 1,
+   "initializer": "748",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 6900992,
+   "dtype": 1,
+   "initializer": "749",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 6901568,
+   "dtype": 1,
+   "initializer": "layer3.2.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 6902144,
+   "dtype": 1,
+   "initializer": "layer3.2.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 6902720,
+   "dtype": 1,
+   "initializer": "layer3.2.bn1.weight",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 6903296,
+   "dtype": 1,
+   "initializer": "layer3.2.bn1.bias",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 6903872,
+   "dtype": 1,
+   "initializer": "751",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 8083584,
+   "dtype": 1,
+   "initializer": "752",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 8084160,
+   "dtype": 2,
+   "initializer": "853",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 8085248,
+   "dtype": 1,
+   "initializer": "754",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 9264960,
+   "dtype": 1,
+   "initializer": "755",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 9265536,
+   "dtype": 1,
+   "initializer": "layer3.3.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 9266112,
+   "dtype": 1,
+   "initializer": "layer3.3.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 9266688,
+   "dtype": 1,
+   "initializer": "layer3.3.bn1.weight",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 9267264,
+   "dtype": 1,
+   "initializer": "layer3.3.bn1.bias",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 9267840,
+   "dtype": 1,
+   "initializer": "757",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 10447552,
+   "dtype": 1,
+   "initializer": "758",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 10448128,
+   "dtype": 2,
+   "initializer": "854",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 10449216,
+   "dtype": 1,
+   "initializer": "760",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 11628928,
+   "dtype": 1,
+   "initializer": "761",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 11629504,
+   "dtype": 1,
+   "initializer": "layer3.4.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 11630080,
+   "dtype": 1,
+   "initializer": "layer3.4.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 11630656,
+   "dtype": 1,
+   "initializer": "layer3.4.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 11631232,
+   "dtype": 1,
+   "initializer": "layer3.4.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 11631808,
+   "dtype": 1,
+   "initializer": "763",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 12811520,
+   "dtype": 1,
+   "initializer": "764",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 12812096,
+   "dtype": 2,
+   "initializer": "855",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 12813184,
+   "dtype": 1,
+   "initializer": "766",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 13992896,
+   "dtype": 1,
+   "initializer": "767",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 13993472,
+   "dtype": 1,
+   "initializer": "layer3.5.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 13994048,
+   "dtype": 1,
+   "initializer": "layer3.5.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 13994624,
+   "dtype": 1,
+   "initializer": "layer3.5.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 13995200,
+   "dtype": 1,
+   "initializer": "layer3.5.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 13995776,
+   "dtype": 1,
+   "initializer": "769",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 15175488,
+   "dtype": 1,
+   "initializer": "770",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 15176064,
+   "dtype": 2,
+   "initializer": "856",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 15177152,
+   "dtype": 1,
+   "initializer": "772",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 16356864,
+   "dtype": 1,
+   "initializer": "773",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 16357440,
+   "dtype": 1,
+   "initializer": "layer3.6.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 16358016,
+   "dtype": 1,
+   "initializer": "layer3.6.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 16358592,
+   "dtype": 1,
+   "initializer": "layer3.6.bn1.weight",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 16359168,
+   "dtype": 1,
+   "initializer": "layer3.6.bn1.bias",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 16359744,
+   "dtype": 1,
+   "initializer": "775",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 17539456,
+   "dtype": 1,
+   "initializer": "776",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 17540032,
+   "dtype": 2,
+   "initializer": "857",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 17541120,
+   "dtype": 1,
+   "initializer": "778",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 18720832,
+   "dtype": 1,
+   "initializer": "779",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 18721408,
+   "dtype": 1,
+   "initializer": "layer3.7.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 18721984,
+   "dtype": 1,
+   "initializer": "layer3.7.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 18722560,
+   "dtype": 1,
+   "initializer": "layer3.7.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 18723136,
+   "dtype": 1,
+   "initializer": "layer3.7.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 18723712,
+   "dtype": 1,
+   "initializer": "781",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 19903424,
+   "dtype": 1,
+   "initializer": "782",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 19904000,
+   "dtype": 2,
+   "initializer": "858",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 19905088,
+   "dtype": 1,
+   "initializer": "784",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 21084800,
+   "dtype": 1,
+   "initializer": "785",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 21085376,
+   "dtype": 1,
+   "initializer": "layer3.8.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 21085952,
+   "dtype": 1,
+   "initializer": "layer3.8.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 21086528,
+   "dtype": 1,
+   "initializer": "layer3.8.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 21087104,
+   "dtype": 1,
+   "initializer": "layer3.8.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 21087680,
+   "dtype": 1,
+   "initializer": "787",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 22267392,
+   "dtype": 1,
+   "initializer": "788",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 22267968,
+   "dtype": 2,
+   "initializer": "859",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 22269056,
+   "dtype": 1,
+   "initializer": "790",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 23448768,
+   "dtype": 1,
+   "initializer": "791",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 23449344,
+   "dtype": 1,
+   "initializer": "layer3.9.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 23449920,
+   "dtype": 1,
+   "initializer": "layer3.9.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 23450496,
+   "dtype": 1,
+   "initializer": "layer3.9.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 23451072,
+   "dtype": 1,
+   "initializer": "layer3.9.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 23451648,
+   "dtype": 1,
+   "initializer": "793",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 24631360,
+   "dtype": 1,
+   "initializer": "794",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 24631936,
+   "dtype": 2,
+   "initializer": "860",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 24633024,
+   "dtype": 1,
+   "initializer": "796",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 25812736,
+   "dtype": 1,
+   "initializer": "797",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 25813312,
+   "dtype": 1,
+   "initializer": "layer3.10.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 25813888,
+   "dtype": 1,
+   "initializer": "layer3.10.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 25814464,
+   "dtype": 1,
+   "initializer": "layer3.10.bn1.weight",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 25815040,
+   "dtype": 1,
+   "initializer": "layer3.10.bn1.bias",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 25815616,
+   "dtype": 1,
+   "initializer": "799",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 26995328,
+   "dtype": 1,
+   "initializer": "800",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 26995904,
+   "dtype": 2,
+   "initializer": "861",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 26996992,
+   "dtype": 1,
+   "initializer": "802",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 28176704,
+   "dtype": 1,
+   "initializer": "803",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 28177280,
+   "dtype": 1,
+   "initializer": "layer3.11.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 28177856,
+   "dtype": 1,
+   "initializer": "layer3.11.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 28178432,
+   "dtype": 1,
+   "initializer": "layer3.11.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 28179008,
+   "dtype": 1,
+   "initializer": "layer3.11.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 28179584,
+   "dtype": 1,
+   "initializer": "805",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 29359296,
+   "dtype": 1,
+   "initializer": "806",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 29359872,
+   "dtype": 2,
+   "initializer": "862",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 29360960,
+   "dtype": 1,
+   "initializer": "808",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 30540672,
+   "dtype": 1,
+   "initializer": "809",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 30541248,
+   "dtype": 1,
+   "initializer": "layer3.12.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 30541824,
+   "dtype": 1,
+   "initializer": "layer3.12.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 30542400,
+   "dtype": 1,
+   "initializer": "layer3.12.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 30542976,
+   "dtype": 1,
+   "initializer": "layer3.12.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 30543552,
+   "dtype": 1,
+   "initializer": "811",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 31723264,
+   "dtype": 1,
+   "initializer": "812",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 31723840,
+   "dtype": 2,
+   "initializer": "863",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 31724928,
+   "dtype": 1,
+   "initializer": "814",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 32904640,
+   "dtype": 1,
+   "initializer": "815",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 32905216,
+   "dtype": 1,
+   "initializer": "layer3.13.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 32905792,
+   "dtype": 1,
+   "initializer": "layer3.13.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 32906368,
+   "dtype": 1,
+   "initializer": "layer3.13.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 32906944,
+   "dtype": 1,
+   "initializer": "layer3.13.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 32907520,
+   "dtype": 1,
+   "initializer": "817",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 34087232,
+   "dtype": 1,
+   "initializer": "818",
+   "cast": "f16nz",
+   "count": 256
+  },
+  {
+   "offset": 34087808,
+   "dtype": 2,
+   "initializer": "864",
+   "cast": "f32",
+   "count": 256
+  },
+  {
+   "offset": 34088896,
+   "dtype": 1,
+   "initializer": "820",
+   "cast": "f16",
+   "count": 589824
+  },
+  {
+   "offset": 35268608,
+   "dtype": 1,
+   "initializer": "821",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 35269184,
+   "dtype": 1,
+   "initializer": "layer4.0.bn1.running_mean",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 35269760,
+   "dtype": 1,
+   "initializer": "layer4.0.bn1.running_var",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 35270336,
+   "dtype": 1,
+   "initializer": "layer4.0.bn1.weight",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 35270912,
+   "dtype": 1,
+   "initializer": "layer4.0.bn1.bias",
+   "cast": "f16",
+   "count": 256
+  },
+  {
+   "offset": 35271488,
+   "dtype": 1,
+   "initializer": "823",
+   "cast": "f16",
+   "count": 1179648
+  },
+  {
+   "offset": 37630848,
+   "dtype": 1,
+   "initializer": "824",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 37631936,
+   "dtype": 2,
+   "initializer": "865",
+   "cast": "f32",
+   "count": 512
+  },
+  {
+   "offset": 37634048,
+   "dtype": 1,
+   "initializer": "826",
+   "cast": "f16",
+   "count": 2359296
+  },
+  {
+   "offset": 42352704,
+   "dtype": 1,
+   "initializer": "827",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 42353792,
+   "dtype": 1,
+   "initializer": "829",
+   "cast": "f16",
+   "count": 131072
+  },
+  {
+   "offset": 42616000,
+   "dtype": 1,
+   "initializer": "830",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 42617088,
+   "dtype": 1,
+   "initializer": "layer4.1.bn1.running_mean",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 42618176,
+   "dtype": 1,
+   "initializer": "layer4.1.bn1.running_var",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 42619264,
+   "dtype": 1,
+   "initializer": "layer4.1.bn1.weight",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 42620352,
+   "dtype": 1,
+   "initializer": "layer4.1.bn1.bias",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 42621440,
+   "dtype": 1,
+   "initializer": "832",
+   "cast": "f16",
+   "count": 2359296
+  },
+  {
+   "offset": 47340096,
+   "dtype": 1,
+   "initializer": "833",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 47341184,
+   "dtype": 2,
+   "initializer": "866",
+   "cast": "f32",
+   "count": 512
+  },
+  {
+   "offset": 47343296,
+   "dtype": 1,
+   "initializer": "835",
+   "cast": "f16",
+   "count": 2359296
+  },
+  {
+   "offset": 52061952,
+   "dtype": 1,
+   "initializer": "836",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 52063040,
+   "dtype": 1,
+   "initializer": "layer4.2.bn1.running_mean",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 52064128,
+   "dtype": 1,
+   "initializer": "layer4.2.bn1.running_var",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 52065216,
+   "dtype": 1,
+   "initializer": "layer4.2.bn1.weight",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 52066304,
+   "dtype": 1,
+   "initializer": "layer4.2.bn1.bias",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 52067392,
+   "dtype": 1,
+   "initializer": "838",
+   "cast": "f16",
+   "count": 2359296
+  },
+  {
+   "offset": 56786048,
+   "dtype": 1,
+   "initializer": "839",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 56787136,
+   "dtype": 2,
+   "initializer": "867",
+   "cast": "f32",
+   "count": 512
+  },
+  {
+   "offset": 56789248,
+   "dtype": 1,
+   "initializer": "841",
+   "cast": "f16",
+   "count": 2359296
+  },
+  {
+   "offset": 61507904,
+   "dtype": 1,
+   "initializer": "842",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 61508992,
+   "dtype": 1,
+   "initializer": "bn2.running_mean",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 61510080,
+   "dtype": 1,
+   "initializer": "bn2.running_var",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 61511168,
+   "dtype": 1,
+   "initializer": "bn2.weight",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 61512256,
+   "dtype": 1,
+   "initializer": "bn2.bias",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 61513344,
+   "dtype": 1,
+   "initializer": "fc.weight",
+   "cast": "f16",
+   "count": 12845056
+  },
+  {
+   "offset": 87203520,
+   "dtype": 1,
+   "initializer": "fc.bias",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 87204608,
+   "dtype": 1,
+   "initializer": "features.running_mean",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 87205696,
+   "dtype": 1,
+   "initializer": "features.running_var",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 87206784,
+   "dtype": 1,
+   "initializer": "features.weight",
+   "cast": "f16",
+   "count": 512
+  },
+  {
+   "offset": 87207872,
+   "dtype": 1,
+   "initializer": "features.bias",
+   "cast": "f16",
+   "count": 512
+  }
+ ]
+}

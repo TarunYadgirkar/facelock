@@ -48,6 +48,7 @@ facelock-bench: FaceLock's benchmark harness. Every subcommand runs in memory an
   idle [--seconds 600] [--state present|locked]
   owner-report [--out PATH]          (refuses any path inside the repo)
   plan                               (compute plan of both models)
+  assemble (--onnx w600k_r50.onnx | --zip buffalo_l.zip) --out DIR   (rebuild ArcFaceR50.mlmodelc as the app does)
   dry-run [--image PATH] [--seconds 120] [--leave-after 5]
   app [--app build/FaceLock.app] [--seconds 300] [--warmup 40]   (the shipping app on the demo camera)
 Common: --models DIR (default: $FACELOCK_MODELS, then <repo>/models)
@@ -89,6 +90,22 @@ func run() async throws {
                                "neural_engine_cost_share": rounded(p.neuralEngineCostShare), "label": p.label]
         }
         printJSON(out)
+    case "assemble":
+        guard let out = args.url("out") else { throw BenchError("assemble needs --onnx FILE or --zip FILE, and --out DIR") }
+        guard let kit = ModelLocator.recognizerKit() else { throw BenchError("no layout or skeleton; run tools/convert_models.py") }
+        let layout = try RecognizerLayout.load(kit.layout)
+        let t0 = Usage.now()
+        var onnx = args.url("onnx")
+        if let zip = args.url("zip") {
+            try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+            onnx = out.appendingPathComponent(layout.source.member)
+            try ZipMember.extract(layout.source.member, from: zip, to: onnx!, sha256: layout.source.sha256)
+        }
+        guard let onnx else { throw BenchError("assemble needs --onnx FILE or --zip FILE") }
+        let url = try RecognizerAssembler.install(onnx: onnx, skeleton: kit.skeleton, layout: layout, into: out)
+        let d = Usage.now().since(t0)
+        printJSON(["model": url.path, "wall_ms": rounded(d.wallMs, 1), "cpu_ms": rounded(d.cpuMs, 1),
+                   "peak_footprint_mb": rounded(Usage.now().peakFootprintMB, 1)])
     case "app":
         let app = args.url("app") ?? ModelLocator.repoModels.deletingLastPathComponent().appendingPathComponent("build/FaceLock.app")
         printJSON(try await AppRun.run(app: app, image: args.url("image") ?? fixture, seconds: args.double("seconds", 300),

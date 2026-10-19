@@ -8,6 +8,11 @@
 
 Both are fp16 ML Programs, so Core ML can schedule every op on the Neural Engine.
 
+The r50 weights are licensed for non-commercial research only and are never shipped. The app ships
+ArcFaceR50.mlmodelc without weights/weight.bin and rebuilds that file on the user's Mac from the
+w600k_r50.onnx it downloads. Resources/ArcFaceR50.layout.json, written here, says where each ONNX
+initializer goes in weight.bin and how it was cast; it holds names, offsets and hashes, no weights.
+
 usage: python -I tools/convert_models.py [--from DIR] [--out models] [--no-compile]
   --from DIR   look for the upstream files in DIR before downloading them
 """
@@ -196,15 +201,86 @@ def convert_arcface(src: Path, dst: Path) -> None:
     mlm.save(str(dst))
 
 
+BLOB_HEADER = 64
+BLOB_DTYPES = {1: 2, 2: 4}  # MIL blob dtype: 1 fp16, 2 fp32 -> bytes per element
+
+
+def fp16_keep_nonzero(a: np.ndarray) -> np.ndarray:
+    """coremltools' cast for some tensors: a nonzero value that rounds to 0 keeps its sign as the smallest subnormal."""
+    h = a.astype(np.float16)
+    under = (h == 0) & (a != 0)
+    h[under] = np.copysign(np.float16(2 ** -24), a[under]).astype(np.float16)
+    return h
+
+
+def write_layout(pkg: Path, onnx_path: Path, dst: Path) -> None:
+    """Maps every blob in weight.bin to the ONNX initializer it came from, and checks that replaying
+    the map reproduces weight.bin byte for byte, so the app can rebuild it from the ONNX file alone."""
+    import struct
+
+    import onnx
+    from onnx import numpy_helper
+
+    weights = (pkg / "Data/com.apple.CoreML/weights/weight.bin").read_bytes()
+    count, version = struct.unpack("<II", weights[:8])
+    if version != 2 or weights[8:BLOB_HEADER] != bytes(BLOB_HEADER - 8):
+        sys.exit("weight.bin: unexpected blob storage header")
+    inits = {i.name: numpy_helper.to_array(i).astype(np.float32).ravel() for i in onnx.load(onnx_path).graph.initializer}
+    casts = {"f16": lambda a: a.astype(np.float16).tobytes(), "f16nz": lambda a: fp16_keep_nonzero(a).tobytes(),
+             "f32": lambda a: a.tobytes()}
+    index: dict[bytes, list[tuple[str, str]]] = {}
+    for name, a in inits.items():
+        for cast, f in casts.items():
+            index.setdefault(f(a), []).append((name, cast))
+    blobs, pos, used = [], BLOB_HEADER, set()
+    for _ in range(count):
+        sentinel, dtype, size, data = struct.unpack("<IIQQ", weights[pos:pos + 24])
+        if sentinel != 0xDEADBEEF or data != pos + BLOB_HEADER or weights[pos + 24:data] != bytes(BLOB_HEADER - 24):
+            sys.exit(f"weight.bin: unexpected blob metadata at {pos}")
+        hits = {n for n, c in index.get(weights[data:data + size], []) if BLOB_DTYPES[dtype] == (4 if c == "f32" else 2)}
+        if len(hits) != 1:
+            sys.exit(f"weight.bin: blob at {pos} matches {len(hits)} initializers")
+        name = hits.pop()
+        cast = next(c for n, c in index[weights[data:data + size]] if n == name and BLOB_DTYPES[dtype] == (4 if c == "f32" else 2))
+        blobs.append({"offset": pos, "dtype": dtype, "initializer": name, "cast": cast, "count": size // BLOB_DTYPES[dtype]})
+        used.add(name)
+        pos = -(-(data + size) // BLOB_HEADER) * BLOB_HEADER
+    if pos != len(weights) or used != set(inits):
+        sys.exit("weight.bin: blobs do not cover the file or every initializer exactly once")
+    replay = bytearray(len(weights))
+    replay[:8] = struct.pack("<II", count, version)
+    for b in blobs:
+        data = casts[b["cast"]](inits[b["initializer"]])
+        replay[b["offset"]:b["offset"] + 24] = struct.pack("<IIQQ", 0xDEADBEEF, b["dtype"], len(data), b["offset"] + BLOB_HEADER)
+        replay[b["offset"] + BLOB_HEADER:b["offset"] + BLOB_HEADER + len(data)] = data
+    if bytes(replay) != weights:
+        sys.exit("weight.bin: replaying the layout does not reproduce the file")
+    r50, archive = LOCK["w600k_r50"], LOCK[LOCK["w600k_r50"]["archive"]]
+    layout = {
+        "about": "Where each w600k_r50.onnx initializer goes in ArcFaceR50.mlmodelc/weights/weight.bin. No weights.",
+        "source": {"url": archive["url"], "archive_sha256": archive["sha256"], "archive_bytes": archive["bytes"],
+                   "member": r50["member"], "sha256": r50["sha256"], "bytes": r50["bytes"], "license": r50["license"]},
+        "weights": {"bytes": len(weights), "sha256": hashlib.sha256(weights).hexdigest(), "version": version},
+        "blobs": blobs,
+    }
+    dst.write_text(json.dumps(layout, indent=1) + "\n")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--from", dest="local", type=Path)
     ap.add_argument("--out", type=Path, default=TOOLS.parent / "models")
     ap.add_argument("--no-compile", action="store_true")
+    ap.add_argument("--layout-only", action="store_true", help="only rewrite Resources/ArcFaceR50.layout.json from models/")
     args = ap.parse_args()
     out: Path = args.out
     cache = out / "upstream"
     cache.mkdir(parents=True, exist_ok=True)
+    layout = TOOLS.parent / "Resources/ArcFaceR50.layout.json"
+    if args.layout_only:
+        write_layout(out / "ArcFaceR50.mlpackage", r50_onnx(cache, args.local), layout)
+        print("wrote", layout)
+        return
 
     yunet_src = fetch(LOCK["yunet"], cache, args.local)
     fused = cache / f"yunet_{DET_W}x{DET_H}_decode.onnx"
@@ -215,6 +291,9 @@ def main() -> None:
         pkg = out / f"{name}.mlpackage"
         build(pkg)
         print("saved", pkg)
+        if name == "ArcFaceR50":
+            write_layout(pkg, r50_onnx(cache, args.local), layout)
+            print("wrote", layout)
         if not args.no_compile:
             subprocess.run(["xcrun", "coremlcompiler", "compile", str(pkg), str(out)], check=True, stdout=subprocess.DEVNULL)
             print("compiled", out / f"{name}.mlmodelc")
