@@ -17,7 +17,7 @@ public enum ModelError: Error, CustomStringConvertible {
 }
 
 /// Finds the compiled models: an explicit directory, $FACELOCK_MODELS, the app bundle (YuNet),
-/// the folder the downloaded recognizer is built in, then the repo's models/ folder.
+/// the folder the downloaded recognizer is built in, then (outside an app bundle) the repo's models/ folder.
 public struct ModelLocator: Sendable {
     public let directories: [URL]
 
@@ -27,7 +27,8 @@ public struct ModelLocator: Sendable {
         if let env = ProcessInfo.processInfo.environment["FACELOCK_MODELS"] { dirs.append(URL(fileURLWithPath: env)) }
         if let res = Bundle.main.resourceURL { dirs.append(res) }
         dirs.append(installed)
-        dirs.append(Self.repoModels)
+        // Only tests and the bench use the checkout's models/; the app must never find them there.
+        if Bundle.main.bundleIdentifier == nil { dirs.append(Self.repoModels) }
         directories = dirs
     }
 
